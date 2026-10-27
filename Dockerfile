@@ -1,4 +1,7 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim AS base
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
+FROM base AS build
 WORKDIR /app
 COPY frontend/package*.json frontend/
 RUN npm ci --prefix frontend
@@ -8,7 +11,7 @@ COPY frontend frontend
 COPY backend backend
 RUN npm --prefix backend run db:generate && npm --prefix backend run build && npm --prefix frontend run build
 
-FROM node:24-bookworm-slim AS runtime
+FROM base AS runtime
 ENV NODE_ENV=production
 WORKDIR /app/backend
 COPY backend/package*.json ./
@@ -18,6 +21,7 @@ COPY --from=build /app/backend/content ./content
 COPY --from=build /app/backend/prisma ./prisma
 COPY --from=build /app/backend/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/frontend/dist /app/frontend/dist
+COPY --chmod=755 backend/scripts/start-container.sh ./scripts/start-container.sh
 USER node
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

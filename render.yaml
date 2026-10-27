@@ -11,7 +11,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     # Free services have no pre-deploy hook or shell. These scripts are idempotent.
-    dockerCommand: /bin/sh -c "npm run db:migrate && npm run db:seed:production && exec node dist/src/server.js"
+    dockerCommand: /app/backend/scripts/start-container.sh
     healthCheckPath: /api/health
     autoDeployTrigger: checksPass
     envVars:
