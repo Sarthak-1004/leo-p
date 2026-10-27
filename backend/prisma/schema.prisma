@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  ADMIN
+  TRAINER
+  STUDENT
+}
+enum Course {
+  GENERAL
+  ACADEMIC
+  BOTH
+}
+enum TestKind {
+  FLT
+  PRACTICE_MOCK
+  PRACTICE
+}
+enum Skill {
+  Listening
+  Reading
+  Writing
+  Speaking
+}
+enum AttemptState {
+  IN_PROGRESS
+  SUBMITTED
+}
+enum JobState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String @id
+  role         Role
+  name         String
+  email        String? @unique
+  passwordHash String
+  enabled      Boolean @default(true)
+  authVersion  Int @default(1)
+  createdAt    DateTime @default(now())
+  student      Student?
+  sessions     Session[]
+  notifications Notification[]
+}
+model Student {
+  id         String @id
+  user       User @relation(fields: [id], references: [id], onDelete: Restrict)
+  course     Course
+  startDate  String
+  expiryDate String
+  trainerId  String?
+  contacts   StudentContact?
+  attempts   Attempt[]
+  @@index([trainerId])
+}
+model StudentContact {
+  studentId String @id
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  phone String @default("")
+  email String @default("")
+  address String @default("")
+  guardianContact String @default("")
+}
+model Session {
+  tokenHash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authVersion Int
+  csrfToken String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+model LoginThrottle {
+  key String @id
+  count Int @default(0)
+  resetAt DateTime
+}
+model Question {
+  id String @id
+  skill Skill
+  course Course
+  questionType String
+  section String
+  difficulty String @default("Medium")
+  title String
+  prompt String
+  passage String @default("")
+  options Json
+  answer Json
+  explanation String @default("")
+  assetIds String[] @default([])
+  published Boolean @default(false)
+  archived Boolean @default(false)
+  practiceEligible Boolean @default(false)
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
+}
+model Test {
+  id String
+  course Course
+  kind TestKind
+  number Int
+  title String
+  published Boolean @default(false)
+  available Boolean @default(false)
+  duration Int @default(150)
+  builder Json
+  conversions Json
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
+  @@id([course, id])
+  @@unique([course, kind, number])
+}
+model Attempt {
+  id String @id @default(uuid())
+  studentId String
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  course Course
+  testId String
+  kind TestKind
+  number Int
+  state AttemptState @default(IN_PROGRESS)
+  snapshot Json
+  answers Json
+  remainingMs Int
+  activeMs Int @default(0)
+  remainingBySection Json @default("{}")
+  section Int @default(0)
+  question Int @default(0)
+  theme String @default("standard")
+  fontSize String @default("standard")
+  submittedSections String[] @default([])
+  reviewedAt DateTime?
+  reviewerId String?
+  reviewRemarks String @default("")
+  sequence Int @default(0)
+  lastSignalHash String?
+  sessionKey String
+  lastSignalAt DateTime?
+  interruptions Int @default(0)
+  flagged Boolean @default(false)
+  createdAt DateTime @default(now())
+  submittedAt DateTime?
+  result Result?
+  logs AttemptLog[]
+  @@unique([studentId, course, testId, number])
+  @@index([studentId, state])
+  @@index([flagged, reviewedAt])
+}
+model AttemptLog {
+  id String @id @default(uuid())
+  attemptId String
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  event String
+  remainingMs Int
+  at DateTime @default(now())
+}
+model Result {
+  id String @id
+  attempt Attempt @relation(fields: [id], references: [id], onDelete: Restrict)
+  studentId String
+  course Course
+  testId String
+  kind TestKind
+  name String
+  attemptNumber Int
+  date DateTime @default(now())
+  minutes Int
+  listening Float?
+  reading Float?
+  writing Float?
+  speaking Float?
+  overall Float?
+  rawScores Json
+  originalScores Json
+  aiStatus String @default("Pending")
+  reviewStatus String @default("Pending")
+  released Boolean @default(false)
+  releasedAt DateTime?
+  releasedBy String?
+  remarks String @default("")
+  speakingCriteria Json?
+  speakingDate String?
+  evaluationDraft Json?
+  assignedTrainerId String?
+  evaluatedBy String?
+  reviewerId String?
+  reviewerUntil DateTime?
+  version Int @default(1)
+  revisions ScoreRevision[]
+  jobs EvaluationJob[]
+  @@index([studentId, released])
+  @@index([reviewStatus])
+  @@index([assignedTrainerId])
+}
+model ScoreRevision {
+  id String @id @default(uuid())
+  resultId String
+  result Result @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  section String
+  previous Float?
+  value Float?
+  actorId String
+  actorName String
+  role Role
+  remarks String
+  details Json
+  at DateTime @default(now())
+}
+model EvaluationJob {
+  id String @id @default(uuid())
+  resultId String
+  result Result @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  state JobState @default(PENDING)
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  leaseUntil DateTime?
+  error String?
+  output Json?
+  model String?
+  rubricVersion String @default("kanan-writing-v1")
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([state, availableAt])
+}
+model Notification {
+  id String @id @default(uuid())
+  dedupeKey String? @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  title String
+  href String
+  read Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([userId, read])
+}
+model AuditLog {
+  id String @id @default(uuid())
+  actorId String
+  action String
+  target String
+  detail Json
+  at DateTime @default(now())
+  @@index([at])
+}
+model PlatformSetting {
+  id String @id @default("platform")
+  value Json
+  version Int @default(1)
+}
+model Asset {
+  id String @id @default(uuid())
+  key String @unique
+  filename String
+  contentType String
+  size Int
+  uploadedBy String
+  createdAt DateTime @default(now())
+}
+model ImportBatch {
+  id String @id @default(uuid())
+  actorId String
+  kind String
+  rows Json
+  committedAt DateTime?
+  createdAt DateTime @default(now())
+}

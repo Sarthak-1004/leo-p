@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/.local
+**/.test-data
+**/test-results
+**/playwright-report
+.git
+stitch-imports
+tmp
+
+backend/content/*
+!backend/content/README.md
+.vercel
+.railway

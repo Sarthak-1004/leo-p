@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+backend/node_modules/
+backend/dist/
+backend/src/generated/
+backend/.local/
+backend/.test-data/
+node_modules/
+*.log
+
+# Keep local assessment sources and original design archives out of the public repository.
+backend/content/*
+!backend/content/README.md
+stitch-imports/
+tmp/
+.vercel/
+.railway/

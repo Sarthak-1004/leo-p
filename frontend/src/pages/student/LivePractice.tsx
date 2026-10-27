@@ -1,0 +1,12 @@
+import {useState} from "react";
+import {useNavigate} from "react-router";
+import {usePreview} from "../../app/PreviewContext";
+import {api} from "../../services/api";
+import {Button,Card,ContentContainer,EmptyState,PageHeader,Tabs} from "../../components/ui";
+import type {Skill,TestAttempt} from "../../types/domain";
+export function LivePractice({skill}:{skill:Skill}){
+  const {questions,refresh}=usePreview();const navigate=useNavigate();const [mode,setMode]=useState("Question type"),[selection,setSelection]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");const [questionId,setQuestionId]=useState("");
+  const eligible=questions.filter(q=>q.skill===skill);const choices=[...new Set(eligible.map(q=>mode==="Question type"?q.questionType:q.section).filter((s):s is string=>!!s))];const selected=choices.includes(selection)?selection:choices[0]??"";
+  const prompts=eligible.filter(q=>(mode==="Question type"?q.questionType:q.section)===selected);const selectedId=prompts.some(q=>q.id===questionId)?questionId:prompts[0]?.id;
+  return <ContentContainer><PageHeader title={`${skill} practice`} description="Choose a question type or a complete section."/><Card>{!choices.length?<EmptyState title="No published practice content yet" description="Your office will add course practice material here."/>:<div className="stack"><Tabs options={["Question type","Section"]} value={mode} onChange={setMode} label="Practice mode"/><label className="field">{mode}<select aria-label={mode} value={selected} onChange={e=>setSelection(e.target.value)}>{choices.map(c=><option key={c}>{c}</option>)}</select></label>{skill==="Writing"&&<label className="field">Writing prompt<select aria-label="Writing prompt" value={selectedId} onChange={e=>setQuestionId(e.target.value)}>{prompts.map(q=><option key={q.id} value={q.id}>{q.title}</option>)}</select></label>}<Button disabled={busy} onClick={async()=>{setBusy(true);setError("");try{const a=await api<TestAttempt>("/practice/start",{method:"POST",body:{skill,mode:mode==="Question type"?"type":"section",selection:selected,...(skill==="Writing"?{questionId:selectedId}:{})}});await refresh();navigate(`/student/attempts/${a.id}`);}catch(e){setError(e instanceof Error?e.message:"Practice could not be started");}finally{setBusy(false);}}}>Start practice</Button></div>}{error&&<p className="error-text" role="alert">{error}</p>}</Card></ContentContainer>;
+}

@@ -2,9 +2,9 @@
 
 ## Authority and status
 
-The supplied **Google Stitch designs are the primary visual source of truth**. The two source ZIP files have not yet been imported or audited. Do not invent a replacement visual design or redesign supplied pages without explicit instruction.
+The supplied **Google Stitch designs are the primary visual source of truth**. Both source ZIP files were audited on 24 September 2026. A React/TypeScript/Vite frontend preview now implements their selected visual patterns. The original archives and historical audit remain unchanged. See [STITCH_AUDIT.md](STITCH_AUDIT.md) for source IDs, screenshots reviewed, and limitations. Do not invent a replacement visual design or redesign supplied pages without explicit instruction.
 
-This document defines behavioral and consistency standards. Exact colors, fonts, sizes, spacing values, radii, shadows, icon family, chart styling, and breakpoints must be extracted from the Stitch audit rather than guessed. If a supplied screen conflicts with required access, accessibility, or responsive behavior, document the conflict and make the smallest appropriate correction; seek direction for material visual changes.
+This document defines behavioral and consistency standards. Observed colors, fonts, sizes, spacing and patterns are recorded below. Where the exports disagree, retain the discrepancy for deliberate reconciliation rather than guessing a new design. If a supplied screen conflicts with required access, accessibility, or responsive behavior, document the conflict and make the smallest appropriate correction; seek direction for material visual changes.
 
 ## Direction
 
@@ -16,7 +16,7 @@ Modern education SaaS: premium, minimal, clean, professional, spacious, and easy
 | --- | --- |
 | Typography | Derive font family, weights, and scale from Stitch. Use consistent page-title, section-title, body, label, and supporting-text roles. Preserve readable mobile text and clear numeric scores/timers. |
 | Spacing | Extract a reusable spacing scale from Stitch. Apply consistent control gaps, card padding, section spacing, and page gutters; preserve whitespace rather than compressing all desktop content. |
-| Layout | Follow supplied page hierarchy and content widths. Use shared student/Admin shells where appropriate, intentional responsive rearrangement, and predictable alignment. |
+| Layout | Follow supplied page hierarchy and content widths. Use shared Student/Trainer/Admin shells where appropriate, intentional responsive rearrangement, and predictable alignment. |
 | Color | Derive brand and neutral tokens from Stitch; define semantic success, warning, error, locked, and informational roles. Never communicate meaning through color alone. |
 | Accessibility | Use semantic controls, readable contrast, visible keyboard focus, accessible names, logical focus order, and usable touch targets. Respect reduced-motion preferences. |
 | Icons | Use a consistent family/style from the supplied designs. Pair unfamiliar icons with labels or accessible explanations. Decorative icons should not duplicate screen-reader announcements. |
@@ -64,7 +64,7 @@ Validate around **1440, 1280, 1024, 768, 430, and 390 px**, as well as widths be
 - Stack forms and action groups intentionally; keep primary actions easy to find.
 - Transform tables into readable cards or suitable compact layouts where appropriate. Use contained horizontal scrolling only for data that genuinely requires it.
 - Adapt passage/question layouts for narrow screens while preserving question position and answers.
-- Keep assessment timers, navigation, audio controls, writing tools, and recording actions reachable without covering content or being hidden by the mobile keyboard.
+- Keep assessment timers, navigation, audio controls, and writing tools reachable without covering content or being hidden by the mobile keyboard.
 - Allow longer labels, errors, zoom, and real student data without clipping. Do not simply shrink the desktop interface.
 
 ## States and feedback
@@ -81,6 +81,76 @@ Validate around **1440, 1280, 1024, 768, 430, and 390 px**, as well as widths be
 | Saving/submitting | Make pending, saved, failed, and submitted states distinguishable. Never display success before acknowledgment. |
 | Pending evaluation | Explicit pending/unavailable score labels; never substitute zero or an invented band. |
 
-## Audit and validation
+## Observed Stitch tokens and patterns ? Phase 1
 
-After the two Stitch ZIP files are authorized for import, inventory student/Admin screens, map reusable components and design tokens, identify missing states, and record responsive behavior. Update this document with observed values and reference locations. Validate future screens against Stitch at the target widths and test collapsed navigation, mobile drawer behavior, keyboard use, loading/errors, and long/empty data.
+Both archives contain a byte-identical `kanan_academic_engine/DESIGN.md`. Its YAML, prose and generated page configurations do not always agree. The following values are observations, not permission to restyle all pages. The shared ZIP 1 configuration and ZIP 2 `_1` practice series are the recommended baseline; approval of variant reconciliation precedes implementation.
+
+| Token/role | Observed baseline |
+| --- | --- |
+| Primary | #003bb5 |
+| Primary container / prominent CTA blue | #2554d7 |
+| Background / surface | #f7f9ff |
+| White card surface | #ffffff |
+| Low surface | #f1f4fb |
+| Main text / secondary text | #181c21 / #434654 |
+| Outline / subtle outline | #747686 / #c4c5d7 |
+| Error / error container | #ba1a1a / #ffdad6 |
+| Admin sidebar | #001550 (on-primary-fixed) |
+| Headings / labels | Plus Jakarta Sans, typically 600?800 |
+| Body | Inter, typically 400?600 |
+| Icons | Material Symbols Outlined via Google Fonts; varying fill/weight axes |
+| Spacing scale | 4, 8, 16, 24, 32px (space-xs through space-xl) |
+| Gutters / margins | Desktop gutter 24px and margin 32px; mobile gutter 12px and margin 16px |
+| Header / sidebar | Baseline 64px header, 256px sidebar; several alternatives use 80px headers and 260px rails |
+| Card shadow reference | 0 10px 30px -5px rgba(26,54,138,0.05) in exported design prose; actual page shadows vary |
+
+| Type role | Size / line-height / weight |
+| --- | --- |
+| display-hero / mobile | 40/48/700 and 30/38/700 |
+| headline-lg / mobile | 28/36/700 and 22/28/700 |
+| headline-md / sm | 20/28/600 and 16/24/600 |
+| stat-display | 32/36/800 |
+| body-lg / md / sm | 16/26/400, 14/22/400, 12/18/400 |
+| label-lg / md / xs | 14/20/600, 12/16/600, 10/14/700 |
+
+Sizes and line heights above are pixels. Baseline generated HTML maps radius DEFAULT/lg/xl to 4/8/12px. Export YAML instead maps DEFAULT/md/lg/xl to 8/12/16/24px, while prose calls for 20?24px cards. ZIP 2 alternatives add further radius overrides. Preserve actual selected screen geometry when consolidating tokens; class names alone do not identify a shared size.
+
+Eight ZIP 2 screens load Tailwind forms/container-queries plugins and omit the baseline named font-size configuration. Several redefine primary as #2554d7 and use alternative canvas colors (#edf1f9, #edf2fb, #f0f4fc). Student Profile/Leaderboard use white navigation, baseline practice uses blue navigation, and Admin uses navy. Treat role differences separately from accidental variant drift.
+
+## Historical source findings
+
+- No complete mobile hamburger/drawer exists. Mobile Dashboard/Practice references use bottom navigation. The required drawer behavior above takes precedence over the exported design prose's optional bottom-navigation direction.
+- Reading alternative B06 hides the entire aside on collapse: icons disappear. This violates the required behavior and must not be copied.
+- Instructions B04 preserves icons when narrowing the sidebar and hides label spans. Its toggle has a title, but collapsed navigation lacks a complete tooltip/accessibility implementation.
+- Writing alternative B11 preserves navigation icons but does not hide all brand/target content when shrinking; overflow and accessible names need correction.
+- Most desktop collapse controls are decorative; desktop sidebar offsets persist on small screens despite responsive content grids.
+- History B15 contains useful desktop table/mobile card variants. ZIP 1 mobile screens provide intentional stacking and safe-area spacing, but separate screenshots do not establish a unified responsive implementation.
+- Pulse/ping, short button scale effects, and SVG ring transitions exist; some generated animation classes have no definition. Add reduced-motion support when implementing.
+- Long generated AI/proctor/certification copy and credit/unlock controls conflict with approved scope. Follow PRD.md and the audit's conflict table when replacing placeholder content, preserving the supplied visual hierarchy.
+
+## Validation of the current frontend
+
+The Phase 1 audit reviewed every exported screenshot and inspected source behavior. The October frontend update adds automated Chromium interaction and overflow checks at all six required widths, including all nine assessment theme/font combinations. Cross-browser certification, complete visual parity and real-data UAT remain outstanding. Compare selected sources at 1440, 1280, 1024, 768, 430 and 390px; verify icon-preserving collapse, tooltips, active navigation, accessible mobile drawer, long/empty data, forms/tables, and loading/error states. Resolve variant-specific differences explicitly without a wholesale redesign.
+
+## October 2026 scope additions
+
+Current product behavior follows SOW-KANAN-IELTS-001 v1.0 and PRD.md. Extend existing Stitch cards, tables, badges, forms and navigation for Trainer workflows. Staff workspaces keep the existing visual hierarchy; no replacement design is introduced.
+
+- Separate Practice Mock Tests from Full Length Tests in navigation and management. Only FLTs have course-wide availability toggles. Keep publication and availability visibly independent.
+- Speaking cards are muted/disabled with **Speaking is conducted offline by your trainer.** Never show student recording, transcript, microphone-permission or submission controls. Staff can enter the four offline Speaking criteria and date.
+- Never show unreleased FLT bands/feedback in student dashboards, history, result URLs or summaries. Pending labels replace unavailable scores. Label released three-skill FLTs **Overall (3 skills) - Speaking pending**; use four-skill labelling after offline marks.
+- Trainer assignment filters default to assigned students but provide all-student academic access. Student contacts and account editing do not appear in Trainer screens.
+- Score changes require remarks. Draft feedback must not silently replace approved marks. Display revision history and release state independently from AI/review/Speaking state.
+- Only module Listening practice offers 1x/1.5x/2x; a new attempt starts at 1x. Full tests show normal speed only.
+- Within Practice Mocks/FLTs, Black on white, White on black and Yellow on black combine with Standard, Large and Extra Large text. Defaults are the SOW values pending final design confirmation. Scope styles to the assessment, including passages, questions, instructions and answer inputs; store preferences with the session attempt for resume.
+- Do not add a manual Pause button. Clearly distinguish the preview timer/local memory from acknowledged server time and durable saving.
+
+Validate the six required widths and all nine theme/text combinations. Browser preview checks cannot certify server authorization, persistent recovery, production scoring or external integrations.
+
+## Connected application
+
+Live API mode preserves the same Stitch-derived shells and controls. Hide demo role/course switches and reset-on-reload statements in connected mode. Login, save, submission, import and release success must follow server acknowledgment. Surface failed/unsaved states without clearing answers. Student Speaking stays disabled; only staff enter offline marks. Large lists use page controls and additional server batches, with a visible indication when more records exist. Assessment themes/fonts remain scoped to the test and restore from the saved attempt.
+
+The completed management flows reuse these cards/forms/tables for reports, private media, announcements and interruption review. Live UI labels describe acknowledged server actions; sample/preview wording is restricted to explicit demo flows. Submitted sections have disabled navigation. Reading passage changes follow the saved question position. New report/operations pages join the six-width regression matrix.
+
+Original question titles retain their authorship label. External official-resource cards have been removed from module practice and Admin content import at the user?s request.

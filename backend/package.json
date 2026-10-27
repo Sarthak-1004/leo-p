@@ -1,0 +1,52 @@
+{
+  "name": "kanan-ielts-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/src/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
+    "setup": "tsx --env-file-if-exists=.env scripts/setup.ts",
+    "db:seed:production": "node --env-file-if-exists=.env dist/scripts/seed.js",
+    "db:local": "tsx scripts/local-postgres.ts",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
+    "content:practice": "tsx --env-file-if-exists=.env scripts/install-practice.ts",
+    "content:practice:production": "node --env-file-if-exists=.env dist/scripts/install-practice.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/s3-request-presigner": "^3.0.0",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/static": "^10.1.7",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "csv-parse": "^7.0.3",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.12.7",
+    "pg": "^8.16.0",
+    "prisma": "7.10.1",
+    "zod": "^4.0.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.0.0",
+    "embedded-postgres": "18.4.0-beta.17",
+    "tsx": "^4.0.0",
+    "typescript": "~6.0.2"
+  }
+}

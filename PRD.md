@@ -1,153 +1,241 @@
-# Kanan IELTS Practice Portal — Product Requirements
+# Kanan IELTS Practice Portal - Product Requirements
 
-## Status and scope
+## Source and implementation status
 
-This document defines the product requirements for the Kanan IELTS Practice Portal. The repository is at the planning/documentation stage. UI designs are complete externally in Google Stitch; two source ZIP files await import and audit. Application, backend, and database implementation have not started.
+Updated 27 October 2026 against **Kanan IELTS Portal Scope of Work**, reference **SOW-KANAN-IELTS-001**, version **1.0**, dated **20 October 2026**, including Annexure A (A1-A75). The supplied PDF replaces earlier product assumptions where the requirements differ. Its commercial terms, sign-off placeholders, and future-feature descriptions are source context; they do not authorize publishing, accepting commercial terms, or enabling excluded features.
 
-The current task covers documentation only. Future implementation must follow this document and the supplied Stitch designs. Frontend technology, technical setup, and unresolved assessment policies must be confirmed later.
+The React/TypeScript/Vite frontend in `frontend/` preserves the audited Stitch designs. The full-project implementation now adds a PostgreSQL API, authenticated frontend mode, durable attempts and operational workflows. The scope below remains the delivery specification. Core authentication, protected APIs, PostgreSQL persistence, attempts, evaluations and CSV/XLSX imports are implemented and tested locally. S3 and Writing AI adapters require external configuration and live-service verification. Deployment, complete client content, full-range conversion tables, production load/restore testing and UAT are still required. The fixture preview is an explicit optional mode.
 
-## Purpose and users
+## Purpose and roles
 
-Provide Kanan students with a focused portal for IELTS General Training and IELTS Academic preparation, and provide non-technical Kanan staff with tools to manage students, content, assessments, and results.
+Provide Kanan.co Bharuch with an English-language responsive IELTS preparation and assessment portal for hundreds of active students, with separate Student, Trainer, and Admin experiences. Trainer and Teacher refer to the same role. There is one Admin role type; multiple staff may hold it.
 
-| Role | Responsibilities and access |
-| --- | --- |
-| Student | Practise, take available mock tests, and view personal progress and results within the assigned course and access period. |
-| Admin | Manage student credentials, course assignments, access periods, content, mock availability, and reporting. |
+| Role | Allowed responsibilities | Restrictions |
+| --- | --- | --- |
+| Student | Practise, attempt eligible tests, resume unfinished attempts, view own released results/history/progress, receive notifications. | Exactly one assigned course; no self-registration, password change/reset, course change, access extension, score editing, result release, or individual unlocks. |
+| Trainer | View academic information for all students; review any marksheet; enter offline Speaking marks; override scores with remarks; see own queue/workload and notifications. | No student contact details, account/credential/course/access changes, global FLT unlocks, trainer management, settings, or result release. |
+| Admin | Manage students, trainers, assignments, access, content, tests, evaluation, result release, reports, notifications, settings, and audit history. | Fixed business rules are not optional toggles. Overrides must retain history and remarks. |
+
+Trainer assignment routes evaluations, notifications, and workload; it does **not** restrict access to other students' academic records. Student phone, email, address, guardian contact, and other contact information must be removed from every Trainer-role response, search result, report, and export on the server.
 
 ## Non-negotiable business rules
 
-1. Every student belongs to exactly one course: **IELTS GENERAL** or **IELTS ACADEMIC**. There is no dual enrollment.
-2. Students may access only their assigned course's content. The other course may appear greyed out or locked where appropriate.
-3. Course, account, access-period, ownership, and role restrictions must eventually be enforced by the backend on every protected operation; visual hiding is insufficient.
-4. Practice is available throughout active portal access. Admin does not unlock individual practice tests. Content publication is a separate editorial concern.
-5. There are 40 General mock tests and 40 Academic mock tests. Each course has an independent availability setting for each test.
-6. Mock availability is course-level, never student-specific. No individual student mock permissions, exceptions, or unlock controls may exist.
-7. Mock publication and mock availability are separate concepts. A test being ON does not make unpublished content accessible.
-8. Students receive a Student ID and password from the Kanan office. There is no student self-registration, password change, or forgot-password flow. Only Admin creates or resets student credentials.
-9. Expired access blocks protected portal functionality. Disabled accounts cannot use protected functionality.
-10. Private results are accessible only to their owner and authorized Admin users. A leaderboard, if enabled, exposes only its approved limited ranking information.
+1. Each student belongs to exactly one course: IELTS GENERAL or IELTS ACADEMIC. Only Admin can reassign that course. The other course is locked where shown.
+2. Access requires an enabled account and a valid start/expiry period. Expired, disabled, and not-yet-active students cannot use protected functions. Historical results are not viewable after expiry by default.
+3. Module practice and published Practice Mock Tests need no Admin availability unlock during active access.
+4. Each course contains exactly 40 Full Length Tests (FLTs). Publication and course-level availability are separate, and General/Academic controls are independent.
+5. Never create per-student FLT permissions, credits, extra-attempt grants, or exceptions. Attempts are activity records, not access entitlements.
+6. Practice Mock Tests allow two attempts per test; FLTs allow one. An attempt counts when started. Resuming the same attempt does not consume another attempt.
+7. Digital Speaking is disabled. Students cannot open, record, or submit Speaking practice/tests. Speaking takes place offline; Trainer/Admin enters marks. No Speaking recording, transcript, or AI evaluation is in scope.
+8. Practice results appear after scoring without Admin release. FLT results remain private to staff until Admin releases them.
+9. Students use office-issued credentials. Student registration, forgot-password, and password-change controls must not exist. Admin controls student and trainer accounts/credentials.
+10. Server-side checks enforce roles, course eligibility, account/access validity, private ownership, publication, availability, attempt limits, and result release. Frontend hiding is insufficient.
+11. Passwords are securely hashed. Secrets and plaintext credentials never belong in frontend assets, committed environment files, logs, or exports.
+12. Production persistence uses real PostgreSQL. Mock/in-memory/browser storage is not production persistence.
 
-## Student account and access lifecycle
+## Accounts and access (A3-A6, A35-A36, A55-A56)
 
-Each student has a Student ID, name, one assigned course, start date, expiry date, account status, and securely hashed password credentials. Admin can create and edit the account, change the course assignment, set dates, enable/disable access, reset the password, and view progress/results.
+Students have a Student ID, name, one course, start/expiry dates, enabled status, and Admin-managed credentials; contacts are Admin-only fields. Admin creates/edits accounts, assigns a trainer, changes course/access dates, enables/disables access, and resets credentials. Preserve historical attempt course and evaluation ownership when assignments change.
 
-Active portal access requires an enabled account and a currently valid access period. Exact timezone and date-boundary semantics must be confirmed before implementation. Before-start, expired, disabled, and wrong-course access need clear outcomes with short guidance to contact the Kanan office where appropriate.
+Provide separate Student, Trainer, and Admin login routes. Student login includes Student ID, password, show/hide password, and login. Trainer accepts Teacher ID or email and password. Admin navigation is separate from the student-facing experience. Preview login must never suggest that supplied credentials were authenticated.
 
-Course changes must update authorization consistently. Handling of historical results and attempts in progress after a course change remains a policy decision; no history should be silently reassigned to the new course.
+Expired access shows name, course, expiry date, and office contact guidance. Date timezone/boundary semantics and effects of mid-attempt disablement, course reassignment, expiry, unpublishing, and availability changes must be settled before production enforcement. Resumption never bypasses authorization.
 
-Passwords must eventually be securely hashed. Plaintext passwords must not appear in persistent records, application logs, reports, or frontend code. Credential delivery procedures and Admin authentication/recovery policy remain to be defined.
+## Practice and test types (A8-A18)
 
-## Student pages and requirements
-
-| Page or state | Required behavior |
-| --- | --- |
-| Student Login | Accept office-issued Student ID and password; provide concise authentication errors without self-registration or password recovery links. |
-| Dashboard | Show student name, assigned course, access expiry, Listening/Reading/Writing/Speaking progress, recent results, and available/completed mock tests with minimal text. |
-| Practice | Provide access to the four practice modules for the assigned course while access is active. |
-| Listening Practice | Audio playback, questions, question navigation, answer submission, and objective scoring where applicable. |
-| Reading Practice | Reading passage, questions, question navigation, answer submission, and objective scoring where applicable. |
-| Writing Practice | Task 1 and Task 2 prompts, writing editor, word count, and submission. Allow future manual/AI evaluation. |
-| Speaking Practice | Parts 1–3, cue cards, recording, and submission. Allow future manual/AI evaluation. |
-| Mock Tests | List assigned-course mock tests with clear availability and completion states; show locked tests appropriately. |
-| Mock Test Instructions | Present configured sections, timing, navigation/submission rules, and recording requirements before starting. |
-| Full Mock Test Interface | Timer, questions, navigation, saving, section transitions, submission, and recovery/resume where appropriate. |
-| Mock Test Result | Show the submitted test's available scores and evaluation status. |
-| Test History | List the student's attempts and allow access to authorized result detail. |
-| Detailed Result | Show available assessment details, section scores, and evaluation status for the student's own attempt. Answer-review release policy is unresolved. |
-| Leaderboard | If enabled, support weekly, monthly, and overall rankings separated appropriately by course. |
-| Profile | Show account information and assigned course/access dates. Student-editable fields are unresolved; credentials and enrollment remain Admin-controlled. |
-| Locked Course State | Clearly identify unavailable course access without exposing protected content. |
-| Expired Access State | Explain that access has ended and direct the student to the office; block protected actions. |
-
-### Practice behavior
-
-Published, course-eligible practice content is accessible during active portal access without mock availability toggles or student-specific unlocks. Questions may be eligible for both courses, but delivery must occur within an authorized course context.
-
-Listening and Reading scoring uses configured answer keys where applicable. Writing and Speaking submission does not imply immediate evaluation. Pending or unavailable scores must be distinct from a score of zero. Manual and AI evaluation are future capabilities, not promised initial automated grading.
-
-Speaking must handle microphone permission denial, recording failure, upload failure, and successful submission clearly. Audio and recording controls must be accessible and usable on supported mobile devices. Supported formats and browser requirements remain unresolved.
-
-### Mock tests and availability
-
-Each course has 40 numbered mock tests. Admin views and controls the two catalogs independently.
-
-| Course | Mock 01 | Mock 02 | Effect |
+| Property | Module practice | Practice Mock Test | Full Length Test |
 | --- | --- | --- | --- |
-| IELTS GENERAL | ON | OFF | All active General students can access published Mock 01; Mock 02 is locked. |
-| IELTS ACADEMIC | OFF | ON | All active Academic students can access published Mock 02; Mock 01 is locked. |
+| Content | Listening, Reading, or Writing | Listening + Reading + Writing | Listening + Reading + Writing online; Speaking offline |
+| Selection | Question-type-wise or section-wise | Complete test | Complete test |
+| Availability | Published, course-eligible content during active access | Published, course-eligible content during active access | Published, course-eligible test with course-level availability ON |
+| Catalog size | Client-supplied content | **Client confirmation required per course** | 40 General and 40 Academic |
+| Attempts | No numeric limit specified in SOW | 2 per test | 1 per test |
+| Listening speed | 1x, 1.5x, 2x; reset to 1x for each new attempt | Normal only, no speed control | Normal only, no speed control |
+| Results | Visible after scoring | Visible after scoring; no required Trainer review | Admin release required |
+| Display preferences | Portal styling | Three themes and three font sizes | Three themes and three font sizes |
 
-ON means available to all active students assigned to that course, subject to publication and valid content. OFF means locked for all students in that course. Neither setting overrides account expiry, disabled status, or course restrictions.
+Practice history retains submitted attempts. Question-type selection includes relevant IELTS formats (for example multiple choice, matching, completion, True/False/Not Given, and task type). Section selection includes Listening Parts 1-4, Reading Passages 1-3, and Writing Tasks 1-2. Question type and section tags are required in the Question Bank.
 
-Mocks must support a realistic IELTS examination experience. Potential sections are Listening, Reading, Writing, and Speaking. Section inclusion, order, timing, permitted navigation, audio replay, attempt limits, and scoring rules must be confirmed before implementation rather than inferred from screen designs.
+Listening provides real audio playback, play/pause, volume, progress, question navigation, answer submission, and answer-key scoring. Reading provides a scrollable passage, question panel, navigation, submission, and objective scoring. Writing provides the correct General letter or Academic visual/report Task 1, Task 2 essay, editor, word count, timer, submission, AI evaluation and staff review.
 
-The interface must distinguish saving, saved, unsaved/error, submitted, and evaluation states. Future implementation must prevent duplicate final submissions, preserve acknowledged answers, and keep timer enforcement authoritative on the server. Recovery must not silently extend allowed time. Policy for availability changes, expiry, or course reassignment during an attempt remains unresolved and must be defined before that behavior is built.
+Speaking is greyed out with: **Speaking is conducted offline by your trainer.** Admin retains Speaking questions/cue cards for offline trainer use and future use; they are not delivered to students.
 
-## Admin portal
+Both Practice Mock attempts remain in history. Progress charts and leaderboard calculations use the latest attempt. Completed FLTs show Completed; exhausted Practice Mocks show Attempts used (2/2). Unfinished attempts expose Resume in dashboard, catalog, and history.
 
-| Page | Required capability |
+### Assessment interaction and recovery (A17)
+
+The shared Practice Mock/FLT interface includes test/section identity, countdown, question progress, previous/next, palette, flags, autosave feedback, section transitions, section submission, final submission, and display settings. Only Listening, Reading, and Writing are online sections. FLT instructions explain the single attempt and offline Speaking process.
+
+The timer counts only while actively connected. A server-acknowledged heartbeat every few seconds saves answers, current section/question, and remaining time. Deduct time only between confirmed active signals; no time accrues after interruption from refresh, disconnect, browser close/crash, shutdown/power loss, or server outage. Resume restores acknowledged answers, position, and exact remaining time. A device clock change cannot add time. There is no manual Pause button.
+
+Log stops and resumes with timestamps and remaining time. Flag attempts with **more than** the configured interruption limit for Admin review; default limit is **3**. Flagging does not grant another attempt. The policy also applies to timed module practice such as Writing. Production must define heartbeat interval/tolerance, concurrent-tab behavior, server outage recovery, and idempotent saves/submission before launch.
+
+### Display settings (A17.2)
+
+Practice Mocks and FLTs provide Black on white (default), White on black, and Yellow on black; Standard (default), Large, and Extra Large text. Exact final colour names/values require design confirmation. Apply to passage, questions, answer inputs, and instructions throughout the test. Save preferences with the attempt for resume. Do not apply these settings to dashboard, module practice, results, Admin, or Trainer screens. Validate all nine combinations at all supported widths.
+
+## Student experience (A7, A30-A33, A70)
+
+| Page | Required behavior |
 | --- | --- |
-| Admin Login | Authenticate authorized staff separately from student access. |
-| Admin Dashboard | Provide concise operational summaries and navigation to management tasks; exact metrics await design audit. |
-| Student Management | Create, view, search/manage, and edit students; enable/disable accounts. |
-| Student Details | View identity, enrollment, access dates, progress/results, and credential-reset actions. |
-| Course Assignment | Assign or change the student's single General/Academic enrollment. |
-| Question Bank | Manage questions across all four modules and course eligibility. |
-| Create Question | Author module-specific content and associated media. |
-| Edit Question | Update and preview content with publication controls. |
-| Mock Test Management | Show independent General and Academic sections, each with 40 tests and course-level ON/OFF toggles. |
-| Mock Test Builder | Assemble section/question content and manage publication separately from availability. |
-| Results | View student attempts, available scores, and evaluation status. |
-| Reports | Access student result/progress reports; exact filters and export scope await definition. |
-| Settings | Manage approved administrative settings; exact scope awaits design and policy confirmation. |
+| Dashboard | Name, course, expiry, overall/module progress, offline Speaking band/pending, recent results, available/completed FLTs, Practice Mock and practice shortcuts, resumable tests, notifications. |
+| Practice | Listening/Reading/Writing, question-type and section selection; disabled Speaking card. |
+| Practice Mock Tests | Course-qualified catalog, two-attempt status, instructions, resume, immediate scored-result access. |
+| Full Length Tests | Forty assigned-course entries, separate availability/publication/completion states, single-attempt instructions, resume. |
+| Test History | Type, date, status, evaluation state, attempt number, available scores, authorized result links, resume; type filters. |
+| Result and details | Final visible scores, clearly labelled 3-/4-skill overall, date/time, released feedback, Writing criteria and submitted answer, offline Speaking criteria/date/remarks, appropriate objective answer review. |
+| Profile | Student ID/name, course, access dates/status, progress/performance; no credential or enrollment editing. |
+| Notifications | In-app events with appropriate destinations/read state. |
+| Leaderboard | Optional feature with separate courses and weekly/monthly/overall views; first name plus last initial, optional avatar, rank and band only. |
+| Locked/expired states | Short explanation and office guidance without protected content leakage. |
 
-### Question Bank
+Unreleased FLT scores and detailed feedback must not leak through dashboard summaries, history, leaderboard, notifications, URLs, or APIs. History may expose a pending attempt/status without its private scores. Zero is a valid score; pending/unavailable is not zero.
 
-Questions can belong to General, Academic, or both where appropriate. Admin needs create, edit, preview, duplicate, publish/unpublish, search, and filter operations. Course eligibility and publication must be visible and validated when content is assembled or delivered.
+## Evaluation, scores, and release (A19-A22, A28-A31, A47-A48, A60-A66)
 
-| Module | Content support |
+Listening and Reading use answer keys; AI is not needed for objective scoring. Writing AI produces criteria bands, estimated task/overall band, feedback, strengths/weaknesses, corrections and improvement suggestions. Store the provider output for review. AI scores are estimates, never official IELTS certification. On failure retain the submission, show Failed/Retry Required, permit retry or manual Trainer/Admin evaluation, and withhold incomplete final results.
+
+Trainers can review any student's Listening/Reading/Writing and offline Speaking, save draft/complete evaluations, add section/overall remarks, re-evaluate Writing, and override any section. Admin has the same evaluation authority and final release control. Preserve automatic score, original AI score, Trainer/Admin revisions, final approved score, previous/new values, actor/role/time, and mandatory remarks for every changed score. Do not overwrite original AI evaluation history.
+
+Show Being checked by [name] when another Trainer is reviewing a marksheet. Assignment routes the default queue; any Trainer may review it. Audit the actual reviewer, including reviews outside their assignment.
+
+### Default conversion tables from SOW A28.1
+
+These are the supplied portal defaults, adjustable per test by Admin with versioned audit history. They are not asserted to be universal official test-version tables.
+
+| Band | Listening (both courses) | Academic Reading | General Reading |
+| --- | --- | --- | --- |
+| 9.0 | 39-40 | 39-40 | 40 |
+| 8.5 | 37-38 | 37-38 | 39 |
+| 8.0 | 35-36 | 35-36 | 37-38 |
+| 7.5 | 32-34 | 33-34 | 36 |
+| 7.0 | 30-31 | 30-32 | 34-35 |
+| 6.5 | 26-29 | 27-29 | 32-33 |
+| 6.0 | 23-25 | 23-26 | 30-31 |
+| 5.5 | 18-22 | 19-22 | 27-29 |
+| 5.0 | 16-17 | 15-18 | 23-26 |
+| 4.5 | 13-15 | 13-14 | 19-22 |
+| 4.0 | 10-12 | 10-12 | 15-18 |
+| 3.5 | Not supplied | Not supplied | 12-14 |
+| 3.0 | Not supplied | Not supplied | 9-11 |
+
+The SOW delegates scores below the lowest supplied rows to Admin-maintained tables without defining the mapping. Do not invent a conversion for Listening/Academic Reading raw 0-9 or General Reading raw 0-8. Full-range validated tables are required before production scoring. Module practice displays raw score and an estimated band only where the completed set supports it.
+
+### Calculation rules
+
+- Bands range 0-9, in whole/half steps unless a criterion explicitly requires whole values.
+- Writing task band is the average of four equally weighted criteria: Task Achievement (Task 1) or Task Response (Task 2), Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy.
+- Writing band = `(Task 1 band + 2 * Task 2 band) / 3`, rounded to nearest half using the rule below. This is the specified portal weighting.
+- Offline Speaking has four equally weighted **whole-number 0-9** criteria: Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy, Pronunciation. Record test date, remarks, evaluator, and completion; round the average to nearest half. Changes to saved marks require remarks/history.
+- Round fractional values below .25 down to the whole band, .25 through below .75 to the half band, and .75 or greater up to the next whole band.
+- FLT overall is the equally weighted average of all four final skill bands. Until Speaking is entered, use Listening/Reading/Writing only and label **Overall (3 skills) - Speaking pending**. Once Speaking is saved, recalculate from four skills. The temporary three-skill figure is a Kanan reporting rule.
+- Practice Mocks contain three skills only; label their overall as a three-skill practice band, without implying an offline Speaking requirement.
+- If Listening, Reading, or Writing is unavailable, overall is pending. Never substitute zero, silently average fewer than three, or expose incomplete AI results as final.
+- Store raw values, conversion table version, criteria, skill bands, unrounded mean, and rounded overall for reproducibility.
+
+### FLT result lifecycle and release
+
+Track independent objective, AI, Trainer-review, Speaking, Admin-review, and publication states; one status must not erase another. The expected progression is Submitted -> Auto Scored -> AI Pending/Completed (or Failed) -> Trainer Review -> Admin Review/Ready for Release -> Released. Speaking Marks Pending may coexist with any post-submission stage.
+
+Admin can release one result, selected results, completed results for an FLT, or completed results for a course. Default release requires complete Listening/Reading/Writing evaluation. Speaking may still be pending: release the explicitly labelled three-skill result. When Speaking is later entered, update the released result and notify the student. Trainer cannot release results.
+
+Release sends an in-app notification linking to the result. Later score changes retain an audit trail and update the final approved score. A62 mentions an intentional Admin override for other incomplete releases, while A65 prohibits incomplete results after AI failure; the exact exceptional policy is unresolved. Default behavior must block incomplete Listening/Reading/Writing release until resolved.
+
+## Trainer portal and assignments (A23-A27, A64, A67-A69)
+
+Provide login, dashboard, student list/profile, evaluation queue/marksheet, notifications, and Trainer profile. Dashboard shows assigned students, own pending/completed evaluations, Writing pending, Speaking pending, recent evaluations and students needing attention. Student and queue views have My assigned students / All students plus search, course, status and assigned-Trainer filters.
+
+The student academic profile includes identity/course/access status, practice progress, attempt history, scores, AI evaluations, feedback, and score revisions without contacts or account editing. Queue rows show student/test/course/submission date, AI/review/Speaking states, and current reviewer. Workload counts actual completed evaluations even for students assigned elsewhere.
+
+Admin assigns one or many students to a Trainer individually or via CSV/XLSX. New submissions route to the new Trainer after reassignment; pending work may be moved explicitly. Historical reviewers/revisions remain unchanged. Bulk assignment requires upload, preview, validation, confirmation, and success/failed-row summary. Validate existing student/trainer IDs, required fields, duplicate rows/assignments, and course mismatches. Show row numbers and correction reasons; provide a downloadable error report. Bulk student creation is not included without a later scope decision.
+
+## Admin, content, and operations (A34-A50, A71)
+
+Admin dashboard includes account/course counts, trainers and students per Trainer, evaluation backlog/completions, unlocked FLTs, recent attempts/results, pending releases and expiring students. Trainer management includes create/edit, enable/disable, credential reset, assignment, workload and activity.
+
+Question Bank covers Listening/Reading/Writing plus offline-only Speaking. Require course eligibility, module, question type, section, difficulty, publication/status, and search/filter metadata. Support authoring, edit, preview, duplicate, publish/unpublish and archive/delete with historical attempt integrity. Listening uses audio/options/keys; Reading uses passages/questions/keys; Writing uses course-appropriate tasks, instructions, word targets and images/charts; Speaking uses parts, cue cards, topics and timing for offline staff use.
+
+Test Builder handles FLTs and Practice Mocks separately: select/add/remove/reorder questions, configure sections/durations, draft, preview, publish and unpublish. Do not deliver Speaking as an online section. General/Academic tabs each separate the two test types. Only FLTs have availability toggles. Publishing a Practice Mock makes it available to eligible active students; publishing an FLT never unlocks it automatically. Display type/number, publication, availability where applicable, attempts and completion counts.
+
+Client-supplied questions, answer keys and test structures need agreed CSV/Excel templates and import tools. Content writing/recording and routine content entry are not development deliverables unless separately agreed.
+
+Required in-app notifications cover releases, FLT unlocks, feedback, Speaking marks, evaluation changes, announcements, access expiry, Trainer assignments/backlog, failed imports, workload and Admin release tasks. No email/SMS/WhatsApp integration is included.
+
+Reports cover student/course/test/module/question-type performance, General versus Academic, Practice Mock versus FLT, average band, attempts/completion, access status/expiry, Trainer workload and turnaround. Filters include dates, course, test, Trainer, student and module. Management lists require search, filtering, sorting and pagination. Do not invent measured production analytics from fixtures.
+
+Audit important account, credential, assignment, content, availability, score, conversion-table, release, interruption/resume and excessive-interruption actions. Record actor, target, time, appropriate old/new values and remarks without secrets or unnecessary personal data.
+
+Operational settings include institution/support details, notification/evaluation preferences, default access duration, file limits, conversion tables and interruption review limit. Fixed rules such as no student self-reset, no digital Speaking, and no individual extra attempts are not settings toggles.
+
+## Design, reliability, and delivery
+
+Preserve Stitch as visual authority and follow DESIGN_SYSTEM.md. Keep minimal text, clear status badges, keyboard access, focus/labels, semantic buttons, accessible modals, icon-preserving desktop sidebar collapse and mobile drawer navigation. Validate at 1440, 1280, 1024, 768, 430 and 390 px, including all test theme/font settings. Support current desktop/mobile Chrome, Edge, Safari and Firefox as the target browser matrix, subject to runtime verification.
+
+Production requires a backend, PostgreSQL, protected object storage for Listening audio and task images, real authentication/authorization, durable autosave, idempotent submission, secure AI evaluation/retry, monitoring and backups. No Speaking recordings are collected. Exact performance/concurrency, retention, recovery and hosting targets remain to be agreed.
+
+The SOW delivery phases are discovery/design; core platform; practice/tests; evaluation/results; Admin/reports/notifications; testing/UAT; deployment/handover. Admin/Trainer/deployment guides are written. Staff training, client staging review, production hosting setup and operational handover remain launch activities. Do not infer completed UAT, approval, warranty dates, training counts or commercial acceptance from blank placeholders in the source document.
+
+## Acceptance scenarios
+
+1. Active students access published practice/Practice Mocks only for their single course; FLT availability is independently course-level and publication-gated.
+2. Exactly 40 FLTs exist per course. No UI/API/data model grants individual FLT permission or extra attempts.
+3. Backend start transactions enforce two Practice Mock attempts and one FLT attempt even under simultaneous requests; resume preserves the same attempt.
+4. Speaking routes cannot record/submit; offline content is staff-only; saved Speaking criteria/date/remarks recalculate the correct band.
+5. Unreleased FLT scores/feedback cannot be retrieved by students through any summary, direct URL or request. Practice scores need no release.
+6. Eligible three-skill FLT results can be released with Speaking pending, then updated/notified after offline marks; missing Writing cannot masquerade as a three-skill result.
+7. Any Trainer may evaluate any student; assignment filters never become authorization. Trainer responses/exports contain no contacts, credentials, or account mutation rights.
+8. Every score change requires remarks and preserves original/previous values, actor and timestamp. Concurrent reviewers are identified and conflicting saves handled.
+9. Each interruption preserves acknowledged answers and remaining time; disconnected time is not deducted; the fourth interruption flags a default-limit attempt. Device-clock changes and resume cannot reset time.
+10. Listening speed options exist only in module practice, default to 1x, and never appear in Practice Mocks/FLTs.
+11. Themes/fonts persist per attempt, remain confined to the test, and work at all target widths with no clipped content.
+12. AI failure safely retains Writing and supports retry/manual review; release blocks incomplete Listening/Reading/Writing evaluation.
+13. Imports preview/validate before mutation, identify every failed row, and preserve previous assignment/evaluation history.
+14. Expired/disabled/not-yet-active users cannot reach protected content; student credentials and course/access are Admin-controlled.
+15. Desktop collapsed navigation retains labelled icons; mobile drawer leaves no permanent sidebar space.
+
+## Remaining confirmations and defaults
+
+| Item | Current treatment |
 | --- | --- |
-| Listening | Questions, answer keys where applicable, and audio. |
-| Reading | Passages, associated questions, and answer keys where applicable. |
-| Writing | Task 1 and Task 2 prompts and relevant assessment media. |
-| Speaking | Parts 1, 2, and 3 prompts and cue cards. |
+| Practice Mock count per course | Client confirmation required; sample fixtures do not define the production catalog. |
+| Final test theme names/colours | Use SOW defaults pending design confirmation. |
+| Interruption review limit | Default 3; flag when count exceeds it; Admin configurable. |
+| Historical student results after expiry | Not accessible by default. |
+| Lower raw-score conversion rows | Admin must supply complete valid tables before production scoring. |
+| Exact section durations/content/audio rules | Configure from approved client test content; no invented exam policy. |
+| Heartbeat timing, concurrent sessions, mid-attempt changes | Implemented defaults: 3-second signals, 7.5-second tolerance, sequence conflicts, immutable snapshots and current access checks; validate on the selected host. |
+| Dates and course history | Inclusive Asia/Kolkata calendar dates; historical original-course records remain staff-accessible. |
+| Ranking/progress/review | Replaceable defaults are recorded below; latest Practice Mock attempt, available scored records and released-only FLTs. |
+| Incomplete-result release exception | Block incomplete L/R/W by default; reconcile A62 with A65 before an override is offered. |
+| Providers and hosting | User-approved replaceable defaults: PostgreSQL, S3-compatible storage, OpenAI Writing adapter. Real credentials, institution retention/load targets and hosting are launch inputs. |
+| Commercial/UAT/warranty/training placeholders | Not completed or accepted by this repository update. |
 
-Question types, validation rules, content versioning, and the effect of edits/unpublishing on existing attempts need confirmation. Historical results must remain interpretable after editorial changes.
+Excluded: digital Speaking, native apps, payments, self-registration/password reset, webcam proctoring/browser lockdown, certificates, multi-branch/batch/parent reporting, AI tutor/personalized recommendations, external messaging, manual test pause, individual unlock credits/extra attempts, and speed controls in full tests.
 
-## Results and progress
+## Implemented operational decisions (full-project task)
 
-Results can include test name, date, time taken, Listening score/band, Reading score/band, Writing score/band, Speaking score/band, and overall band. Only applicable and available values should be displayed. Do not invent band conversions or calculate a misleading overall band from incomplete evaluation.
+The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.
 
-Score conversion tables, rounding, overall-band eligibility, manual evaluation workflow, and result-release policy are unresolved. Progress definitions and the treatment of repeat attempts must be documented before dashboard metrics are implemented.
+Access dates are inclusive calendar dates in Asia/Kolkata. Every request reloads account/role/access state. Course/status/date changes and password resets revoke old sessions. Existing attempts keep immutable course/content/conversion snapshots; changing publication/availability after start does not destroy an already-started attempt, while current account/access/course restrictions still apply. Historical results from a previous course remain stored for staff but are not exposed through the student's newly assigned course.
 
-## Leaderboard
+The client sends an acknowledged revision every three seconds. The server deducts time only between confirmed signals within a 7.5-second continuity window; stale gaps or a reconnect signal stop charging and log an interruption/resume. Section time is stored separately. Duplicate sequences are idempotent; stale/out-of-order concurrent writes are rejected. This requires production network/outage and load testing before go-live.
 
-Leaderboard availability is optional. If enabled, provide weekly, monthly, and overall views with appropriately separate General and Academic rankings. Expose only necessary display identity and ranking information, never credentials, access dates, private answer details, or unnecessary personal data. Ranking formula, eligible attempts, ties, time boundaries, display identity, and privacy/participation policy must be defined before release.
+Imports use preview/confirmation and partial success: valid rows commit in one transaction, invalid rows remain reported, and confirming the same batch twice does not repeat assignments. CSV/XLSX assignment, question and test-structure imports are implemented; content imports as drafts. Test structures are assembled in the builder. Test structures can also be imported as drafts through CSV/XLSX with version and eligibility validation.
 
-## Non-functional requirements
+Leaderboard is disabled initially. If enabled, the current implementation averages available released FLT and completed Practice Mock bands, using each student's latest attempt per test, with rolling 7-/30-day windows and public display-name ordering for ties. Confirm institution ranking policy before enabling it. Dashboard progress shows actual assessment counts and latest available bands; it does not invent a syllabus completion percentage.
 
-- **Responsive:** Intentional layouts around 1440, 1280, 1024, 768, 430, and 390 px, following DESIGN_SYSTEM.md and Stitch references.
-- **Usable:** Clean, minimal, professional screens with clear statuses and straightforward workflows for non-technical staff.
-- **Accessible:** Keyboard-operable controls, visible focus, semantic labels, adequate contrast, and statuses that do not rely on color alone.
-- **Fast:** Responsive navigation and assessment interactions, efficient lists, and appropriate media delivery. Quantified performance budgets await technical audit.
-- **Reliable:** Observable answer-saving states, protected submissions, defined recovery behavior, and durable production persistence.
-- **Secure:** Server-side authorization, secure credential handling, protected media, private results, and audited administrative changes.
-- **Maintainable:** Reusable components and clear domain boundaries; avoid unnecessary infrastructure complexity.
-- **Scalable:** Initially support hundreds of students. Concurrency, media volume, and load-test targets must be confirmed before production rollout.
+Production gates: provide licensed complete assessment content, Listening audio/task images, full raw conversion tables, hosting/TLS and provider credentials; validate external services, backups/restore, operational monitoring, load/concurrency and client UAT. No public deployment or paid AI call was performed during local implementation.
 
-## Acceptance scenarios for future implementation
+## Content deferral and application completion
 
-1. An active General student can access eligible General practice without an Admin unlock and cannot retrieve Academic-only content through direct requests.
-2. Switching General Mock 06 ON makes the published test accessible to all active General students; switching it OFF locks it for that course. Academic availability is unaffected.
-3. No UI, API, or persistence model provides individual-student mock unlocks.
-4. An unpublished mock remains unavailable even when its availability is ON.
-5. An expired, disabled, or not-yet-active account cannot use protected portal functionality through either the UI or direct backend requests.
-6. A student cannot retrieve another student's private attempts, answers, results, or recordings by changing identifiers.
-7. Students have no registration, password change, or password reset pathway; Admin can issue/reset credentials securely.
-8. Dashboard and results distinguish incomplete evaluation from zero scores and calculate only approved metrics.
-9. Answer saving, submission, timer enforcement, and recovery follow the approved attempt policy, including network interruption handling.
-10. Sidebar icons remain visible when collapsed, and mobile navigation uses a drawer without a permanent desktop sidebar.
+The user explicitly deferred real assessment papers, questions, audio and other media. Catalog population, publication of real papers and lower conversion values supplied by the institution are separate from application development. Keep the real catalog empty/draft until content is uploaded; automated checks use isolated fixtures only.
 
-## Decisions intentionally deferred
+The connected application includes dedicated academic reports/CSV export, operational interruption review, private media reuse, Admin announcements, complete operational preference controls, explicit pending-work reassignment, section submission/closed-section recovery, passage/question navigation, module-only manual review and stored AI feedback/strengths/weaknesses/corrections/improvement suggestions. Bulk release supports selected results, a test or an entire course, preserving the L/R/W completion rule. No excluded features are introduced.
 
-Audit the two Stitch ZIP files before choosing frontend technology or setup commands. Also confirm assessment composition/timing/scoring, repeat attempts, recovery rules, mid-attempt access changes, date boundaries, course-change history, result review/release, progress and ranking formulas, evaluation workflows, content lifecycle, media retention, Admin roles/settings, deployment, and measurable operational targets. Record decisions in the relevant source-of-truth documents before implementing dependent functionality.
+See docs/IMPLEMENTATION_STATUS.md and docs/VERIFICATION.md for implemented scope and the distinction between application verification and external go-live work.
+
+## Subsequent practice-content task
+
+The user subsequently requested official-paper sourcing and practice additions. Official partner sample pages were researched; the external resource links have since been removed from the portal at the user?s request. No full official paper/audio has been republished or represented as one of the portal FLTs. The public source terms restrict republication; no source-specific licensed files or approved inventory were supplied.
+
+An original, clearly labelled pack adds 24 Reading questions, 8 Writing tasks and 8 Listening drafts with a recording script. Its explicit Admin-audited installer preserves existing IDs/staff edits, keeps records unpublished and never modifies tests, attempts or results. Reading/Writing need staff review before publication; Listening also needs an actual private audio asset. This supersedes the earlier blanket practice-content deferral while preserving the unfinished official-FLT content boundary. See backend/content/README.md.

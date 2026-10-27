@@ -1,0 +1,25 @@
+name: Portal checks
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm --prefix backend run db:generate
+      - run: npm --prefix backend run typecheck
+      - run: npm --prefix frontend run lint
+      - run: npm run test:deployment
+      - run: npm run build
+      - run: npm run build:vercel
+        env:
+          BACKEND_ORIGIN: https://api.example.test
+      - run: npm --prefix backend test
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm --prefix frontend run test:e2e
+      - run: npm --prefix frontend run test:live
