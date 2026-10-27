@@ -103,6 +103,8 @@ Full official papers/audio have not been copied into the 80 FLT slots. The exter
 
 ## Testing deployment
 
-Target repository: [Sarthak-1004/leo-p](https://github.com/Sarthak-1004/leo-p). The checked-in configuration supports Vercel for the frontend and Railway for the persistent API/PostgreSQL service. Import the repository root on both providers; Vercel needs BACKEND_ORIGIN and Railway needs DATABASE_URL, NODE_ENV=production and the exact frontend APP_ORIGIN. Follow [the deployment sequence](docs/DEPLOYMENT.md#github-vercel-and-railway-testing-deployment) for domains, first Admin setup and hosted verification. Account connections and provider provisioning remain required before a working testing URL exists.
+Target repository: [Sarthak-1004/leo-p](https://github.com/Sarthak-1004/leo-p). The checked-in configuration supports Vercel for the frontend and Render for the API/PostgreSQL service. Import the repository root on both providers; Vercel needs BACKEND_ORIGIN and Render needs the exact frontend APP_ORIGIN; render.yaml connects PostgreSQL and generates the first Admin password. Follow [the deployment sequence](docs/DEPLOYMENT.md#github-vercel-and-render-testing-deployment) for domains, first Admin setup and hosted verification. Account connections and provider provisioning remain required before a working testing URL exists.
 
 Local assessment sources/answer keys, databases, passwords and original Stitch archives are intentionally excluded from the public repository. The application does not automatically import local questions or create demo users in hosting.
+
+The selected Render configuration uses free plans for initial testing. The API sleeps after 15 idle minutes and its PostgreSQL database expires after 30 days. Background evaluation/reminder work stops while the API sleeps; use an approved paid configuration for continuous operation or longer-lived data.

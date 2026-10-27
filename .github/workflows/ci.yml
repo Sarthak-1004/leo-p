@@ -43,16 +43,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t portal-ci .
-      - name: Apply migrations and bootstrap isolated database
+      - name: Check Render startup, private API and SPA navigation
         run: |
-          docker run --rm --network host -e DATABASE_URL -e APP_ORIGIN portal-ci npm run db:migrate
-          docker run --rm --network host -e DATABASE_URL -e APP_ORIGIN -e BOOTSTRAP_ADMIN_ID=ci-admin -e BOOTSTRAP_ADMIN_PASSWORD=CI-synthetic-password-only portal-ci npm run db:seed:production
-      - name: Check container health, private API and SPA navigation
-        run: |
-          docker run --detach --rm --name portal-ci --network host -e DATABASE_URL -e APP_ORIGIN -e PORT=3001 portal-ci
-          curl --fail --retry 20 --retry-connrefused --retry-delay 2 http://127.0.0.1:3001/api/health
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/bootstrap)" = "401"
-          curl --fail --head http://127.0.0.1:3001/student/dashboard
+          docker run --detach --rm --name portal-ci --network host -e DATABASE_URL -e APP_ORIGIN -e PORT=10000 -e BOOTSTRAP_ADMIN_ID=ci-admin -e BOOTSTRAP_ADMIN_PASSWORD=CI-synthetic-password-only portal-ci /bin/sh -c "npm run db:migrate && npm run db:seed:production && exec node dist/src/server.js"
+          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:10000/api/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:10000/api/bootstrap)" = "401"
+          curl --fail --head http://127.0.0.1:10000/student/dashboard
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: https://portal.example.test' -H 'Content-Type: application/json' --data '{"role":"admin","identifier":"ci-admin","password":"CI-synthetic-password-only"}' http://127.0.0.1:10000/api/auth/login)" = "200"
+      - name: Verify repeat bootstrap without replacing existing Admin credentials
+        run: docker run --rm --network host -e DATABASE_URL -e APP_ORIGIN portal-ci npm run db:seed:production
       - name: Container logs
         if: always()
         run: docker logs portal-ci || true

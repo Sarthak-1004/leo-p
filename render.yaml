@@ -1,0 +1,45 @@
+# Free initial testing only: the API sleeps when idle and PostgreSQL expires after 30 days.
+# Review https://render.com/docs/free before creating these resources.
+services:
+  - type: web
+    name: leo-p-api
+    runtime: docker
+    repo: https://github.com/Sarthak-1004/leo-p
+    branch: main
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Free services have no pre-deploy hook or shell. These scripts are idempotent.
+    dockerCommand: /bin/sh -c "npm run db:migrate && npm run db:seed:production && exec node dist/src/server.js"
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: ACCESS_TIMEZONE
+        value: Asia/Kolkata
+      - key: APP_ORIGIN
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: leo-p-db
+          property: connectionString
+      - key: BOOTSTRAP_ADMIN_ID
+        value: admin
+      - key: BOOTSTRAP_ADMIN_NAME
+        value: Kanan Admin
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        generateValue: true
+
+databases:
+  - name: leo-p-db
+    plan: free
+    region: singapore
+    postgresMajorVersion: "18"
+    databaseName: leo_portal
+    user: leo_portal
+    # Application connections use the private internal URL above.
+    ipAllowList: []
