@@ -23,3 +23,36 @@ jobs:
         working-directory: frontend
       - run: npm --prefix frontend run test:e2e
       - run: npm --prefix frontend run test:live
+
+  container:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci_runner
+          POSTGRES_PASSWORD: ci-ephemeral-only
+          POSTGRES_DB: portal_ci
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U ci_runner -d portal_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://ci_runner:ci-ephemeral-only@127.0.0.1:5432/portal_ci
+      APP_ORIGIN: https://portal.example.test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t portal-ci .
+      - name: Apply migrations and bootstrap isolated database
+        run: |
+          docker run --rm --network host -e DATABASE_URL -e APP_ORIGIN portal-ci npm run db:migrate
+          docker run --rm --network host -e DATABASE_URL -e APP_ORIGIN -e BOOTSTRAP_ADMIN_ID=ci-admin -e BOOTSTRAP_ADMIN_PASSWORD=CI-synthetic-password-only portal-ci npm run db:seed:production
+      - name: Check container health, private API and SPA navigation
+        run: |
+          docker run --detach --rm --name portal-ci --network host -e DATABASE_URL -e APP_ORIGIN -e PORT=3001 portal-ci
+          curl --fail --retry 20 --retry-connrefused --retry-delay 2 http://127.0.0.1:3001/api/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/bootstrap)" = "401"
+          curl --fail --head http://127.0.0.1:3001/student/dashboard
+      - name: Container logs
+        if: always()
+        run: docker logs portal-ci || true

@@ -43,3 +43,12 @@ No public deployment was performed. Original Stitch archives and the historical 
 ## Subsequent content-task verification
 
 The later content change passes 31 backend integration tests (the preceding 29 plus draft-pack validation and Admin-only/idempotent installation preserving staff edits and FLTs), all 14 responsive/demo browser tests at the six widths, frontend lint and both builds. The existing eight live workflow cases were not rerun for this content-only addition. A direct CSV round trip checked all 40 answer keys and multiline passages through the actual import parser. The local installation created 40 unpublished questions without populating or publishing the 80 FLT slots. Official-source links contain URLs/labels only; no official paper/audio was copied. Listening audio and pedagogical/difficulty calibration are not verified by these checks.
+
+
+## Testing deployment preparation verification
+
+The 27 October deployment preparation passes 31 PostgreSQL API integration cases, eight connected browser cases, all 14 responsive/demo cases and two deployment-routing cases (55 automated cases total). Both production builds, frontend lint and the generated Vercel package pass locally. The Vercel packaging check uses a synthetic HTTPS backend origin; it does not contact a hosting provider. Missing private-pack tooling was restored, and installation tests now use synthetic fixtures so the public checkout needs no private assessment sources.
+
+Public repository exclusions were checked before publishing: .env/local credentials, PostgreSQL files, private content JSON/CSV/scripts, original Stitch archives and generated deployment output remain local. The checked-in .env.example contains placeholders only. API integration checks now assert no-store for anonymous and authenticated responses; routing checks confirm API paths never enter SPA fallback and proxy caching is disabled.
+
+GitHub Actions runs checks on the published main branch, including an additional Linux container job that builds the actual Dockerfile, migrates/bootstraps an isolated PostgreSQL database and checks API health, anonymous API rejection and SPA navigation. Its credentials are synthetic CI fixtures. Read the current Actions result separately; local checks do not certify that remote job or a hosted deployment.
