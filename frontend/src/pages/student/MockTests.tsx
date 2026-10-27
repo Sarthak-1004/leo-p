@@ -1,3 +1,5 @@
+import {Pagination} from "../../components/Pagination";
+import {usePagination} from "../../utils/usePagination";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { usePreview } from "../../app/PreviewContext";
@@ -46,12 +48,14 @@ export function MockTests({ practice = false }: { practice?: boolean }) {
     const available = t.published && (practice || t.available);
     return filter === "All" || (filter === "Available" ? available : filter === "Locked" ? !available : filter === "In progress" ? started.some((a) => a.state === "In progress") : completed);
   });
+  const pagination=usePagination(filtered,8);
   return <ContentContainer>
     <PageHeader title={practice ? "Practice Mock Tests" : "Full Length Tests"} description={practice ? "Three skills. Two attempts per test. Results after scoring." : "One attempt per test. Results released by Admin."} actions={<Badge>{courseName(course)}{!practice && " · 40 tests"}</Badge>} />
     <div className="actions"><LinkButton secondary to={practice ? "/student/mock-tests" : "/student/practice-mocks"}>{practice ? "Full Length Tests" : "Practice Mock Tests"}</LinkButton></div>
-    <Tabs options={["All", "Available", "In progress", "Locked", "Completed"]} value={filter} onChange={setFilter} label="Test status" />
+    <Tabs options={["All", "Available", "In progress", "Locked", "Completed"]} value={filter} onChange={value=>{setFilter(value);pagination.setPage(1);}} label="Test status" />
     <p className="muted text-xs">{practice ? "Published practice mocks need no Admin unlock. Sample catalogue; final test count is awaiting confirmation." : "Availability applies to all active students in your course. Speaking is conducted offline by your trainer."}</p>
-    <div className="mock-grid">{filtered.map((t) => <MockCard key={t.id} test={t} />)}</div>
+    <div className="mock-grid">{pagination.items.map((t) => <MockCard key={t.id} test={t} />)}</div>
+    {filtered.length>0&&<Pagination {...pagination}/>}
     {!filtered.length && <Card><EmptyState title="No tests in this view" /></Card>}
   </ContentContainer>;
 }

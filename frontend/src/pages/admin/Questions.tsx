@@ -12,6 +12,7 @@ import {
   Card,
   ContentContainer,
   EmptyState,
+  FilterPanel,
   LinkButton,
   Modal,
   Notice,
@@ -38,7 +39,7 @@ export function QuestionBank() {
       (course === "ALL" || q.course === "BOTH" || q.course === course) &&
       `${q.title} ${q.prompt}`.toLowerCase().includes(search.toLowerCase()),
   ).sort((a,b)=>order==="ID"?a.id.localeCompare(b.id):a.title.localeCompare(b.title));
-  const pagination=usePagination(filtered);
+  const pagination=usePagination(filtered,10);
   return (
     <ContentContainer>
       <PageHeader
@@ -58,7 +59,7 @@ export function QuestionBank() {
         label="Question skill"
       />
       <Card>
-        <div className="actions justify-between mb-4">
+        <div className="filter-toolbar mb-4">
           <label className="search-field">
             <Icon name="search" size={16} />
             <input
@@ -77,16 +78,17 @@ export function QuestionBank() {
             </select>
           </label>
         </div>
-        <div className="form-grid mb-5"><label className="field">Question status<select aria-label="Question status" value={status} onChange={e=>setStatus(e.target.value)}>{["All","Published","Draft","Archived"].map(value=><option key={value}>{value}</option>)}</select></label><label className="field">Sort questions<select aria-label="Sort questions" value={order} onChange={e=>setOrder(e.target.value)}><option>Title</option><option>ID</option></select></label><label className="field">Question type<select value={questionType} onChange={e => setQuestionType(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.questionType).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label><label className="field">Section<select value={section} onChange={e => setSection(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.section).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label></div>
+        <FilterPanel><div className="form-grid question-filters"><label className="field">Question status<select aria-label="Question status" value={status} onChange={e=>setStatus(e.target.value)}>{["All","Published","Draft","Archived"].map(value=><option key={value}>{value}</option>)}</select></label><label className="field">Sort questions<select aria-label="Sort questions" value={order} onChange={e=>setOrder(e.target.value)}><option>Title</option><option>ID</option></select></label><label className="field">Question type<select value={questionType} onChange={e => setQuestionType(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.questionType).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label><label className="field">Section<select value={section} onChange={e => setSection(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.section).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label></div>
+        </FilterPanel>
         {pagination.items.map((q) => (
-          <div className="list-row" key={q.id}>
+          <div className="list-row question-record" key={q.id}>
             <div className="row">
               <span className="icon-tile">
                 <Icon name={skillIcon[q.skill]} />
               </span>
               <div>
                 <div className="actions mb-2">
-                  <Badge>{q.skill === "Speaking" ? "Speaking ? Offline only" : q.skill}</Badge>
+                  <Badge>{q.skill === "Speaking" ? "Speaking - Offline only" : q.skill}</Badge>
                   <Badge tone="gray">
                     {q.course === "BOTH" ? "General & Academic" : q.course}
                   </Badge>
@@ -100,7 +102,7 @@ export function QuestionBank() {
                 </p>
               </div>
             </div>
-            <div className="actions">
+            <div className="actions question-actions">
               <Button variant="ghost" onClick={() => setPreview(q)}>
                 Preview
               </Button>

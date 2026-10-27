@@ -73,6 +73,9 @@ export function Sidebar({
               to={to}
               onClick={close}
               aria-label={label}
+              title={collapsed ? label : undefined}
+              onPointerEnter={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
+              onFocus={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
               className={({ isActive }) =>
                 `nav-item ${isActive ? "active" : ""}`
               }

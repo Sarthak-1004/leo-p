@@ -1,3 +1,5 @@
+import {Pagination} from "../../components/Pagination";
+import {usePagination} from "../../utils/usePagination";
 import { ConversionEditor } from "../../components/ConversionEditor";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -28,6 +30,7 @@ export function AdminMocks() {
   const [number,setNumber]=useState(1);
   const [kind, setKind] = useState("Full Length Tests");
   const catalog = tests.filter((t) => t.course === course && t.kind === (kind === "Full Length Tests" ? "FLT" : "PRACTICE_MOCK"));
+  const pagination=usePagination(catalog,10);
   return (
     <ContentContainer>
       <PageHeader
@@ -38,10 +41,10 @@ export function AdminMocks() {
       <Tabs
         options={["GENERAL", "ACADEMIC"]}
         value={course}
-        onChange={setCourse}
+        onChange={value=>{setCourse(value);pagination.setPage(1);}}
         label="Mock course"
       />
-      <Tabs options={["Full Length Tests", "Practice Mock Tests"]} value={kind} onChange={setKind} label="Test type" />
+      <Tabs options={["Full Length Tests", "Practice Mock Tests"]} value={kind} onChange={value=>{setKind(value);pagination.setPage(1);}} label="Test type" />
       <Notice>{kind === "Full Length Tests" ? "Availability affects all active students in this course. One attempt per FLT." : "Published Practice Mock Tests are always available. Two attempts per test. Add drafts as needed; the final catalog count can be confirmed later."} {mode === "demo" ? "Changes reset on reload." : "Changes are saved on the server."}</Notice>
       {changed && (
         <p className="sr-status" role="status">
@@ -63,7 +66,7 @@ export function AdminMocks() {
               </tr>
             </thead>
             <tbody>
-              {catalog.map((t) => (
+              {pagination.items.map((t) => (
                 <tr key={t.id}>
                   <td>
                     <strong>
@@ -123,7 +126,7 @@ export function AdminMocks() {
           </table>
         </div>
         <div className="mobile-cards">
-          {catalog.map((t) => (
+          {pagination.items.map((t) => (
             <div className="mobile-record" key={t.id}>
               <div className="row between">
                 <h3>{t.kind === "FLT" ? "Full Length Test" : "Practice Mock Test"} {String(t.number).padStart(2, "0")}</h3>
@@ -173,6 +176,7 @@ export function AdminMocks() {
           ))}
         </div>
       </Card>
+      <Pagination {...pagination}/>
     </ContentContainer>
   );
 }

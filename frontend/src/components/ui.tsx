@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -234,13 +235,15 @@ export function EmptyState({
   title = "Nothing here yet",
   description = "Try a different filter.",
   action,
+  compact = false,
 }: {
   title?: string;
   description?: string;
   action?: ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="empty-state">
+    <div className={`empty-state ${compact ? "empty-state-compact" : ""}`}>
       <span className="empty-icon">
         <Icon name="book" size={30} />
       </span>
@@ -332,4 +335,18 @@ export function Modal({
       <div className="modal-body">{children}</div>
     </dialog>
   );
+}
+
+export function FilterPanel({children,title="Filters and sorting"}:{children:ReactNode;title?:string}) {
+  const [open,setOpen]=useState(()=>window.matchMedia("(min-width: 768px)").matches);
+  useEffect(()=>{
+    const media=window.matchMedia("(min-width: 768px)");
+    const resize=()=>setOpen(media.matches);
+    media.addEventListener("change",resize);
+    return ()=>media.removeEventListener("change",resize);
+  },[]);
+  return <details className="filter-panel" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
+    <summary>{title}<Icon name="chevron" size={16}/></summary>
+    <div className="filter-panel-body">{children}</div>
+  </details>;
 }

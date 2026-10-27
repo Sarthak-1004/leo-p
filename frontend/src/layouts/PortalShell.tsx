@@ -89,13 +89,15 @@ export function PortalShell({ admin = false, trainer = false }: { admin?: boolea
             </span>
           </div>
           <div className="header-user">
-            <Link to={`/${role}/notifications`} aria-label={`Notifications (${unread} unread)`} className="icon-button"><Icon name="bell" />{unread > 0 && <small>{unread}</small>}</Link>
+            <Link to={`/${role}/notifications`} aria-label={`Notifications (${unread} unread)`} className="icon-button notification-button"><Icon name="bell" />{unread > 0 && <small className="notification-count">{unread > 99 ? "99+" : unread}</small>}</Link>
             <Badge>{admin ? "KANAN ADMIN" : trainer ? "TRAINER" : courseName(course)}</Badge>
             <span className="avatar">
               {admin
                 ? "KA"
                 : trainer ? "TR" : student?.name
                     .split(" ")
+                    .filter(Boolean)
+                    .slice(0, 2)
                     .map((s) => s[0])
                     .join("")}
             </span>
@@ -136,8 +138,8 @@ export function PortalShell({ admin = false, trainer = false }: { admin?: boolea
           </div>
         </div>
         }
-        {pending && <p className="notice" role="status">Saving changes...</p>}
-        {error && <div className="notice" role="alert"><span>{error}</span><button className="btn btn-ghost" onClick={clearError}>Dismiss</button></div>}
+        {pending && <p className="notice portal-message" role="status">Saving changes...</p>}
+        {error && <div className="notice portal-message" role="alert"><span>{error}</span><button className="btn btn-ghost" onClick={clearError}>Dismiss</button></div>}
         <main id="main-content" tabIndex={-1}>
           {status === "loading" ? (
             <LoadingState />

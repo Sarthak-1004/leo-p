@@ -154,3 +154,10 @@ Live API mode preserves the same Stitch-derived shells and controls. Hide demo r
 The completed management flows reuse these cards/forms/tables for reports, private media, announcements and interruption review. Live UI labels describe acknowledged server actions; sample/preview wording is restricted to explicit demo flows. Submitted sections have disabled navigation. Reading passage changes follow the saved question position. New report/operations pages join the six-width regression matrix.
 
 Original question titles retain their authorship label. External official-resource cards have been removed from module practice and Admin content import at the user?s request.
+
+
+## October 28 design correction pass
+
+The page-by-page review is recorded in [docs/DESIGN_REVIEW.md](docs/DESIGN_REVIEW.md). Keep the existing Stitch-derived visual hierarchy. Shared record cards must have consistent desktop and mobile styling; badge/icon widths follow their content. Mobile controls use at least 44px interactive targets and 16px input text, while the visual switch track can remain smaller inside its touch target. Long header names truncate without expanding the header. A collapsed sidebar must scroll on short displays without clipping its active icon or focused tooltip.
+
+Dense filters may use a native accessible disclosure: open by default on desktop and collapsed on mobile. Catalogs keep their full counts while showing bounded pages (eight student tests, ten Admin tests/questions). Use mobile cards for report records; keep genuine data matrices such as band conversions in a labelled, keyboard-scrollable region with a sticky header. Dialog headings stay visible within long scrolling forms. Preserve assessment theme/font scope and all existing save/release/access behavior.
