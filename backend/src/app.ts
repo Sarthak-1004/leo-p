@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import { existsSync } from "node:fs";
@@ -39,6 +40,10 @@ export async function buildApp(db:Db,config:Config) {
     return payload;
   });
   await app.register(cookie);
+  // Transport backstop before authentication/database work. The socket may be a
+  // shared gateway: this deliberately generous ceiling is not the login budget.
+  // Canonical-account password/MFA/write limits remain durable in PostgreSQL.
+  await app.register(rateLimit,{max:30000,timeWindow:60000,cache:2000,skipOnError:false});
   await app.register(helmet,{contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'","data:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],mediaSrc:["'self'","https:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],connectSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}});
   await app.register(multipart,{limits:{files:1,fileSize:20*1024*1024,fields:4,parts:5}});
   const storage=new Storage(config);

@@ -71,6 +71,13 @@ async function submitted(kind:"FLT"|"PRACTICE_MOCK"="FLT") {
   }
   return a.id as string;
 }
+test("transport request limiting covers anonymous requests and does not trust forwarded identity",async()=>{
+  const first=await app.inject({url:"/api/bootstrap"});
+  const forged=await app.inject({url:"/api/bootstrap",headers:{"x-forwarded-for":"198.51.100.250","x-real-ip":"198.51.100.251"}});
+  assert.equal(first.statusCode,401);assert.equal(forged.statusCode,401);
+  assert.equal(Number(first.headers["x-ratelimit-limit"]),30000);
+  assert.equal(Number(forged.headers["x-ratelimit-remaining"]),Number(first.headers["x-ratelimit-remaining"])-1);
+});
 test("unauthenticated, wrong-role, CSRF and origin requests are rejected",async()=>{
   const anonymous=await app.inject({url:"/api/bootstrap"});assert.equal(anonymous.statusCode,401);assert.equal(anonymous.headers["cache-control"],"no-store");
   assert.equal((await call("admin","GET","/api/bootstrap")).headers["cache-control"],"no-store");

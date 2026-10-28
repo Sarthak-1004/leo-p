@@ -33,6 +33,7 @@
     "@fastify/cookie": "^11.0.0",
     "@fastify/helmet": "^13.0.0",
     "@fastify/multipart": "^9.0.0",
+    "@fastify/rate-limit": "^11.2.1",
     "@fastify/static": "^10.1.7",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",

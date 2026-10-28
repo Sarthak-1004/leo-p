@@ -11,7 +11,7 @@ The initial Stitch audit remains a historical record in STITCH_AUDIT.md: its sou
 | Frontend | React with TypeScript, Vite, React Router, Tailwind CSS and shared CSS tokens. Exact versions/scripts are in `frontend/package.json`. |
 | Structure | `src/app`, `components`, `layouts`, `pages`, `routes`, `types`, `mocks`, `services`, `styles`, `assets`, and `utils`. |
 | Data | Live API mode uses Prisma/PostgreSQL. Explicit VITE_DEMO_MODE=true selects the independent fixture provider; it never serves as an API fallback. |
-| Identity | Database-backed, hashed-token HttpOnly cookie sessions, CSRF/origin validation, scrypt password hashing and current-role/access checks. Role/course switches exist only in demo mode. |
+| Identity | Database-backed, hashed-token HttpOnly sessions, CSRF/origin checks, bounded scrypt hashing, mandatory staff MFA and recent password/MFA proof for sensitive writes. Role/course switches exist only in demo mode. |
 | Attempts/evaluation | Transactional PostgreSQL starts/submissions, per-section connected-time saves, immutable snapshots, optimistic evaluation revisions, offline Speaking, release, notifications and append-only audit history. |
 | API/database | Node 24, Fastify 5, TypeScript, Prisma 7.10.1 with the pg adapter, versioned PostgreSQL migrations and integration tests against a real local PostgreSQL process. |
 | External services | S3-compatible upload/authorized media streaming, durable Writing AI jobs via OpenAI Responses and server CSV/XLSX import are implemented. External credentials/live-service tests and production deployment are still required. |
@@ -90,6 +90,10 @@ Production PostgreSQL holds structured records and authoritative state. Object s
 Do not initialize entities for excluded future features simply because Annexure A lists them as possible later additions. In particular no live digital Speaking pipeline, individual unlock table, student credits, extra-attempt override, Super Admin, batch or branch model is required.
 
 ## Authorization and field privacy
+
+Staff passwords grant a restricted five-minute challenge. TOTP secrets use account-bound AES-256-GCM; full staff sessions require verified enrollment with recovery-code acknowledgement or a fresh factor. Database row locks serialize TOTP/recovery consumption and prevent replay. Password/MFA proof expires after five minutes for sensitive staff writes; the shared client verification dialog retries a rejected write once after successful verification. Session/challenge authorization versions are checked against current database records. Student sign-in and fixed credential restrictions remain unchanged.
+
+A per-process bounded Fastify request limiter runs before authentication/database work with a deliberately generous 30,000-request/minute socket-source ceiling for shared gateways. It ignores untrusted forwarding headers. Durable canonical-account password/MFA and authenticated-write limits remain in PostgreSQL. This process-level backstop is not distributed edge/DDoS protection; provider ingress controls and production capacity need separate verification.
 
 Every protected API and media request must evaluate authenticated role, current account status, scope, ownership and relevant lifecycle. Refresh stale authorization claims when Admin changes course/status/access; a client route parameter or cached token claim alone is insufficient.
 

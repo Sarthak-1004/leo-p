@@ -70,7 +70,7 @@ Select an approved off-site destination, schedule, retention, database/media rec
 
 ## Monitoring and automated checks
 
-Repeated login/MFA failures, staff recovery-code use and operator factor reset create coalesced Admin-only security notifications and immutable audit records. Review them in the existing notification/audit screens. Configure provider availability, resource, database and failed-job alerts plus log retention separately. Validate trusted client identity at the edge; arbitrary forwarding headers remain untrusted. Cover direct Render ingress as well as Vercel so one path cannot bypass edge limits.
+Repeated login/MFA failures, staff recovery-code use and operator factor reset create coalesced Admin-only security notifications and immutable audit records. Review them in the existing notification/audit screens. A bounded per-process request limiter precedes authentication with a generous 30,000/minute socket-source ceiling so a shared institutional gateway does not consume a low shared login budget. PostgreSQL continues to enforce the stricter canonical-account/MFA/write limits across instances. Configure provider availability, resource, database and failed-job alerts plus log retention separately. Validate trusted client identity at the edge; arbitrary forwarding headers remain untrusted. Cover direct Render ingress as well as Vercel so one path cannot bypass edge limits.
 
 GitHub workflows use pinned action commits and limited permissions. Security checks run on pushes, PRs and a weekly schedule:
 
@@ -79,5 +79,9 @@ GitHub workflows use pinned action commits and limited permissions. Security che
 - CodeQL uses the extended JavaScript/TypeScript security suite. The SARIF gate blocks high/critical results and fails if analysis output is missing.
 - Trivy scans the built image for fixable high/critical OS/library vulnerabilities. Unfixed advisories require review; this gate does not certify their absence.
 - Dependabot proposes dependency/action updates for review. Updates are not automatically merged.
+
+The gate resolves CodeQL query-pack extension descriptors and rejects missing/inconsistent metadata. `.github/codeql-reviewed.json` records one traced false positive: CodeQL treats the randomly generated 256-bit MFA challenge cookie as a human password. Its SHA-256 lookup digest is appropriate for that random token; human passwords use scrypt. This exception matches the exact rule/location/flow, checks the complete token-generation/hashing source hashes and expires on 28 November 2026. A changed source, different flow, expired review or any other high/critical result blocks the gate. Re-review the evidence rather than extending or broadening the exception automatically.
+
+The image scan also covers npm's globally bundled dependencies, which application lockfiles and `npm audit --prefix backend` do not cover. The Dockerfile temporarily replaces vulnerable global npm `undici`/`brace-expansion` packages with verified patch versions from an isolated install; it does not resolve npm's development workspaces or exclude findings. Keep the image gate and runtime startup test enabled when updating/removing that workaround.
 
 Actual workflow conclusions, production edge behavior, infrastructure IAM, real backup restoration, live AI/storage abuse tests and an independent penetration test must be recorded before production security sign-off. Never flood the public testing deployment to simulate denial of service.

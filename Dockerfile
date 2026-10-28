@@ -18,7 +18,10 @@ COPY backend/package*.json ./
 # Patch npm's own bundled libraries until the upstream image includes these fixes.
 # App lockfiles do not govern this global tooling tree; keep the image scan enabled.
 RUN npm ci --omit=dev \
-    && npm install --prefix /usr/local/lib/node_modules/npm --no-save --omit=dev --ignore-scripts --package-lock=false undici@6.29.1 brace-expansion@5.0.12 \
+    && npm install --prefix /tmp/npm-security-patches --no-save --omit=dev --ignore-scripts --package-lock=false undici@6.29.1 brace-expansion@5.0.12 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/undici /usr/local/lib/node_modules/npm/node_modules/brace-expansion /usr/local/lib/node_modules/npm/node_modules/balanced-match \
+    && cp -a /tmp/npm-security-patches/node_modules/undici /tmp/npm-security-patches/node_modules/brace-expansion /tmp/npm-security-patches/node_modules/balanced-match /usr/local/lib/node_modules/npm/node_modules/ \
+    && rm -rf /tmp/npm-security-patches \
     && npm cache clean --force
 COPY --from=build /app/backend/dist ./dist
 COPY --from=build /app/backend/content ./content
