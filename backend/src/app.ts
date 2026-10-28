@@ -21,7 +21,7 @@ import { confirmImport, csvExport, previewImport } from "./imports.js";
 import {institution,platformSettings} from "./settings.js";
 import {reports,reportQuery} from "./reports.js";
 import { Storage } from "./storage.js";
-import {beginMfa,enrollMfa,verifyMfa,completeMfa,reauthenticate} from "./mfa.js";
+import {reauthenticate} from "./reauth.js";
 import {securityAlert} from "./security.js";
 declare module "fastify" {
   interface FastifyRequest { auth?:Authenticated; }
@@ -32,7 +32,7 @@ export async function buildApp(db:Db,config:Config) {
   // Classify declared routes, never attacker-controlled raw URL spellings.
   app.addHook("onRoute",route=>{
     if(route.url.startsWith("/api/"))route.config={...route.config,portalApi:true,
-      publicApi:["/api/health","/api/institution"].includes(route.url)||(["/api/auth/login","/api/auth/mfa/enroll","/api/auth/mfa/verify","/api/auth/mfa/complete"].includes(route.url)&&route.method==="POST"),
+      publicApi:["/api/health","/api/institution"].includes(route.url)||(route.url==="/api/auth/login"&&route.method==="POST"),
       allowInactive:["/api/auth/me","/api/auth/logout"].includes(route.url)};
   });
   app.addHook("onSend",async(req,reply,payload)=>{
@@ -42,7 +42,7 @@ export async function buildApp(db:Db,config:Config) {
   await app.register(cookie);
   // Transport backstop before authentication/database work. The socket may be a
   // shared gateway: this deliberately generous ceiling is not the login budget.
-  // Canonical-account password/MFA/write limits remain durable in PostgreSQL.
+  // Canonical-account password/write limits remain durable in PostgreSQL.
   await app.register(rateLimit,{max:30000,timeWindow:60000,cache:2000,skipOnError:false});
   // Route-level hooks run after global authentication hooks in Fastify. Run the
   // same limiter here first; its request marker prevents counting twice later.
@@ -60,7 +60,7 @@ export async function buildApp(db:Db,config:Config) {
     if(req.method!=="GET")await throttle(db,`action:${req.auth.user.id}`,300,60);
     const path=req.routeOptions.url??"",role=req.auth.user.role;
     const sensitive=(path.startsWith("/api/admin/")&&role==="ADMIN")||(path==="/api/results/release"&&role==="ADMIN")||(/^\/api\/results\/:id\/(evaluation|retry-ai)$/.test(path)&&role!=="STUDENT");
-    if(sensitive&&!["GET","HEAD","OPTIONS"].includes(req.method)&&!(req.auth.reauthUntil&&req.auth.reauthUntil>new Date()))throw new ApiError(403,"Confirm your password and authenticator code before continuing","REAUTH_REQUIRED");
+    if(sensitive&&!["GET","HEAD","OPTIONS"].includes(req.method)&&!(req.auth.reauthUntil&&req.auth.reauthUntil>new Date()))throw new ApiError(403,"Confirm your password before continuing","REAUTH_REQUIRED");
   });
   app.setErrorHandler((error,req,reply)=>{
     if(retryableTransactionError(error))return reply.code(409).send({message:"This record changed during saving. Reload and try again"});
@@ -77,7 +77,11 @@ export async function buildApp(db:Db,config:Config) {
   app.post("/api/auth/login",async(req,reply)=>{
     assert(req.headers.origin===config.APP_ORIGIN,403,"Request origin is not permitted");
     const input=z.object({role:z.enum(["student","trainer","admin"]),identifier:z.string().trim().min(1).max(200),password:z.string().min(1).max(128)}).strict().parse(req.body);
-    const u=await db.user.findFirst({where:{OR:[{id:input.identifier},{email:input.identifier.toLowerCase()}]},include:{student:true}});
+    // Contact emails stay inside this authentication lookup, never Trainer DTOs.
+    // Shared/ambiguous emails cannot choose an arbitrary account; assigned IDs work.
+    const byId=await db.user.findUnique({where:{id:input.identifier},include:{student:true}});
+    const matches=byId?[]:await db.user.findMany({where:{OR:[{email:{equals:input.identifier,mode:"insensitive"}},{role:"STUDENT",student:{contacts:{email:{equals:input.identifier,mode:"insensitive"}}}}]},include:{student:true},take:2});
+    const u=byId??(matches.length===1?matches[0]:null);
     // An untrusted gateway IP may represent the entire institution. Never let
     // unrelated identifiers exhaust one low shared login bucket. Aliases of an
     // existing account share its canonical key, including across requested roles.
@@ -92,24 +96,12 @@ export async function buildApp(db:Db,config:Config) {
     assert(u&&valid&&u.enabled&&u.role.toLowerCase()===input.role,401,"The ID or password is incorrect");
     // CAS prevents a concurrent Admin password reset from being overwritten.
     if(passwordNeedsRehash(u.passwordHash))await db.user.updateMany({where:{id:u.id,passwordHash:u.passwordHash,authVersion:u.authVersion},data:{passwordHash:await hashPassword(input.password)}});
-    if(u.role!=="STUDENT"){
-      const challenge=await beginMfa(db,u,config);
-      reply.clearCookie("kanan_session",{path:"/"}).setCookie("kanan_mfa",challenge.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:300});
-      return {mfaRequired:true,enrollmentRequired:challenge.enrollmentRequired,csrfToken:challenge.csrfToken};
-    }
     const session=await sessionFor(db,u,config);
-    reply.setCookie("kanan_session",session.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:config.SESSION_HOURS*3600});
+    reply.clearCookie("kanan_mfa",{path:"/"}).setCookie("kanan_session",session.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:config.SESSION_HOURS*3600});
     await audit(db,u.id,"Signed in",u.id);
     return {user:userView(u,config),csrfToken:session.csrfToken};
   });
-  const finishStaff=(reply:any,result:{session:{token:string;csrfToken:string};user:Authenticated["user"]})=>{
-    reply.clearCookie("kanan_mfa",{path:"/"}).setCookie("kanan_session",result.session.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:config.SESSION_HOURS*3600});
-    return {user:userView(result.user,config),csrfToken:result.session.csrfToken};
-  };
-  app.post("/api/auth/mfa/enroll",async req=>{z.object({}).strict().parse(req.body??{});return enrollMfa(db,req,config);});
-  app.post("/api/auth/mfa/verify",async(req,reply)=>{const {code}=z.object({code:z.string().trim().min(6).max(40)}).strict().parse(req.body);const result=await verifyMfa(db,req,config,code);return result.session&&result.user?finishStaff(reply,{session:result.session,user:result.user}):{recoveryCodes:result.recoveryCodes};});
-  app.post("/api/auth/mfa/complete",async(req,reply)=>{z.object({}).strict().parse(req.body??{});return finishStaff(reply,await completeMfa(db,req,config));});
-  app.post("/api/auth/reauth",async req=>{const b=z.object({password:z.string().min(1).max(128),code:z.string().trim().min(6).max(40)}).strict().parse(req.body);return reauthenticate(db,req.auth!,config,b.password,b.code);});
+  app.post("/api/auth/reauth",async req=>{const b=z.object({password:z.string().min(1).max(128)}).strict().parse(req.body);return reauthenticate(db,req.auth!,b.password);});
   app.get("/api/auth/me",async req=>({user:userView(user(req),config),csrfToken:req.auth!.csrfToken}));
   app.post("/api/auth/logout",async(req,reply)=>{await db.session.deleteMany({where:{tokenHash:req.auth!.tokenHash}});reply.clearCookie("kanan_session",{path:"/"});return {ok:true};});
   app.get("/api/bootstrap",async req=>{const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(500).default(500)}).parse(req.query);return bootstrap(db,user(req),q.offset,q.limit);});
@@ -168,8 +160,8 @@ export async function buildApp(db:Db,config:Config) {
   });
   app.get("/api/admin/security",async req=>{
     admin(user(req));const rows=await db.$queryRaw<Array<{rolsuper:boolean;rolcreatedb:boolean;rolcreaterole:boolean;owns_database:boolean;can_create_schema_objects:boolean}>>`SELECT r.rolsuper,r.rolcreatedb,r.rolcreaterole,pg_has_role(current_user,d.datdba,'MEMBER') AS owns_database,has_schema_privilege(current_user,'public','CREATE') AS can_create_schema_objects FROM pg_roles r JOIN pg_database d ON d.datname=current_database() WHERE r.rolname=current_user`;
-    const privileges=rows[0];const [staff,unenrolled,legacyPasswords]=await Promise.all([db.user.count({where:{role:{not:"STUDENT"},enabled:true}}),db.user.count({where:{role:{not:"STUDENT"},enabled:true,mfaSecret:null}}),db.user.count({where:{passwordHash:{startsWith:"scrypt:32768:8:1:"}}})]);
-    return {staffMfaRequired:true,mfaConfigured:!!config.MFA_ENCRYPTION_KEY,staff,unenrolled,legacyPasswords,runtimeDatabasePrivileges:privileges,runtimeRoleHasElevatedPrivileges:!privileges||Object.values(privileges).some(Boolean),leastPrivilegeVerified:false,backupRestoreVerified:false,storagePolicyVerified:false};
+    const privileges=rows[0];const [staff,legacyPasswords]=await Promise.all([db.user.count({where:{role:{not:"STUDENT"},enabled:true}}),db.user.count({where:{passwordHash:{startsWith:"scrypt:32768:8:1:"}}})]);
+    return {authenticationMethod:"password",staffMfaRequired:false,staff,legacyPasswords,runtimeDatabasePrivileges:privileges,runtimeRoleHasElevatedPrivileges:!privileges||Object.values(privileges).some(Boolean),leastPrivilegeVerified:false,backupRestoreVerified:false,storagePolicyVerified:false};
   });
   app.get("/api/admin/attempts",async req=>{
     admin(user(req));const q=z.object({page:z.coerce.number().int().min(1).default(1),course:course.optional(),studentId:z.string().max(80).optional(),filter:z.enum(["all","flagged","unreviewed","in-progress"]).default("unreviewed")}).parse(req.query);

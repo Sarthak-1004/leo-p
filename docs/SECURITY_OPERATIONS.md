@@ -2,39 +2,24 @@
 
 Updated 28 October 2026. Application controls and automated tests are distinct from verified hosting permissions, production recovery and independent penetration testing. Use this checklist to record evidence; do not treat an automated pass or a numerical rating as security certification.
 
-## Staff authentication
+## Password sign-in
 
-Admin and Trainer accounts always require MFA. No environment flag bypasses it. Student accounts retain office-issued password sign-in and cannot register or reset/change their own passwords.
+The later 28 October 2026 user decision replaces authenticator-based staff sign-in with email/assigned ID and password for every role. There is no authenticator setup, code, QR, recovery-code or public signup flow. Accounts remain Admin-managed; Students cannot register or reset/change their own passwords.
 
-On first staff sign-in, the correct password creates a five-minute restricted challenge in a separate HttpOnly cookie. Scan the locally generated QR code with a compatible authenticator app or enter the setup key. A valid six-digit code enables the factor. Save the ten one-use recovery codes separately from the password and acknowledge them before the portal opens. The setup secret/codes are never sent to a third-party QR service or stored in browser storage.
+Assigned IDs match the account ID. Emails match case-insensitively against the account email or a Student's private contact email. An email must identify exactly one account; shared/ambiguous emails fail generically and those users must use their assigned IDs. Contact details remain absent from Trainer responses, reports and exports. Disabled accounts, incorrect roles/passwords, access dates and revoked sessions remain enforced on the server.
 
-Later sign-ins accept a fresh authenticator code or an unused recovery code. The server rejects reused TOTP counters and atomically consumes recovery codes. Repeated failures are throttled across challenges; successful verification resets the consecutive-attempt budget. Password resets/account changes invalidate pending challenges. Existing staff sessions without MFA proof cannot access protected APIs after rollout.
+Password verification grants a normal hashed-token HttpOnly session directly, including for previously enrolled staff. Canonical-account/source throttles, bounded scrypt work, origin/CSRF checks, database authorization and immutable audits remain active. No environment flag enables an alternate authenticator flow.
 
-Account/access/content operations, evaluation changes, result release and AI retries require recent staff authentication. After five minutes the client asks for the password and another MFA/recovery code, then retries the original request once. The server rejects the mutation before it changes records while proof is missing. Cancellation preserves the unsaved form and reports that nothing was saved.
-
-TOTP is not phishing-resistant. Staff must protect their devices/passwords and recovery codes; higher-assurance passkey enrollment and an independent review remain possible later work.
+Account/access/content operations, evaluation changes, result release and AI retries require recent staff authentication. After five minutes the dialog asks only for the password, then retries the original request once. The server rejects the mutation before changing records while proof is missing. Cancellation retains the unsaved form. Password confirmation is throttled and cannot revive a revoked, disabled or expired session.
 
 ## Keys and rollout
 
-- `MFA_ENCRYPTION_KEY`: base64 encoding of 32 cryptographically random bytes. TOTP secrets use AES-256-GCM with per-record random IVs and account-bound authenticated data. Production refuses to start without this key.
-- `BACKUP_ENCRYPTION_KEY`: a separate base64 32-byte key for encrypted database archives. Keep both keys in a protected secret store outside the archive location, with documented owner access and recovery. Losing the MFA key requires recovery/re-enrollment; losing a backup key makes its archive unrecoverable.
-- Local `npm --prefix backend run security:prepare` generates missing keys into ignored files/environment configuration without printing them. It preserves configured keys and refuses to overwrite an existing key file. Do not commit these files.
-- The existing Render Blueprint adds both values using `generateValue: true`. Render documents this as a random base64 256-bit value, preserved when already present. Confirm the Blueprint sync and environment before rollout; never paste real keys into GitHub, chat or frontend variables.
-- Apply migration `202610280008_staff_mfa` and deploy API/UI together. The Render startup script applies additive migrations before starting the service. Refresh old browser tabs to use acknowledged section transitions and the MFA client flow.
-- Verify `/api/health` through both Vercel and direct Render access. On Render, its `revision` must match the deployed Git commit. A Vercel preview origin is not automatically permitted by the stable API's exact `APP_ORIGIN` policy.
-- Each staff member completes enrollment on their own device. Do not share an Admin login/authenticator among developers. No real staff credential or factor is enrolled by the automated tests.
-
-## Lost authenticator recovery
-
-Try an unused recovery code first. If none remains, an authorized deployment operator verifies the staff member's identity outside this portal and runs the existing recovery command in the trusted backend environment:
-
-```powershell
-npm --prefix backend run security:reset-mfa -- --user STAFF_ID --remarks "Verified staff identity and recovery request" --confirm-reenrollment
-```
-
-The compiled deployment equivalent is `security:reset-mfa:production`. This operation clears the factor, revokes all affected sessions/challenges/recovery codes, advances authorization versions and records the operator/reason. It grants no portal session: the staff member must sign in and enroll again. It cannot reset Student credentials. Treat database/deployment access as privileged; an account without operator access cannot use this CLI.
-
-The free hosting plan may not provide an interactive shell. Confirm a trusted operator execution/recovery path and keep unused recovery codes before relying on it for production. Do not open the database to all public IPs to work around that limitation.
+- Sign-in and production startup require no authenticator key. No real password, email or account record is changed by this rollout.
+- Historical MFA columns/tables and migration `202610280008_staff_mfa` remain for existing database/backup compatibility. They do not validate sessions. Retired authenticator routes and operator reset commands are removed; a stale challenge cookie alone grants no access. Password sign-in clears that obsolete cookie.
+- Preserve existing deployment keys and ignored local key files for historical backup/rollback purposes. The Render Blueprint retains the previously generated sign-in key to avoid destroying it, but the application no longer reads or requires it. Do not rotate keys as part of this UI/authentication change.
+- `BACKUP_ENCRYPTION_KEY` remains a separate base64 32-byte key for encrypted database archives. Keep it in a protected secret store outside the archive location; losing it makes archives unrecoverable. It is needed for backup commands, not login.
+- Local `npm --prefix backend run security:prepare` now prepares only the backup key without printing it. It preserves configured keys and refuses to overwrite an existing key file. Never commit `.env`, local keys or credentials.
+- Deploy API and frontend together and refresh older browser tabs. Verify `/api/health` through both Vercel and direct Render access; its revision must match the deployed Git commit. Existing passwords, account access, records and the shared Admin navy palette are preserved.
 
 ## Database and object-storage permissions
 
@@ -64,13 +49,13 @@ npm --prefix backend run backup -- verify PATH_TO_EXISTING_ARCHIVE.enc
 
 The entire archive is authenticated before SQL restoration starts, so a wrong key or tampered ciphertext cannot execute a restore. The target must be local and contain no public tables. The command never uses a destructive clean/overwrite option. Restore only archives from trusted sources; SQL backups can contain executable database objects.
 
-After restoration, check actual record counts, attempts/snapshots, score revisions/releases, contact isolation, encrypted MFA records and media references. The CI recovery test uses disposable synthetic records and checks ciphertext recovery, audit immutability and refusal to overwrite a populated target. It is not evidence that a current production backup has been restored.
+After restoration, check actual record counts, attempts/snapshots, score revisions/releases, contact isolation, retained legacy fields and media references. The CI recovery test uses disposable synthetic records and checks legacy-field recovery, audit immutability and refusal to overwrite a populated target. It is not evidence that a current production backup has been restored.
 
 Select an approved off-site destination, schedule, retention, database/media recovery targets and alert owner. Configure managed database recovery/object versioning where supported by the selected plan. Existing free initial-testing infrastructure is not a substitute for that decision. No paid backup service or recurring subscription is created automatically.
 
 ## Monitoring and automated checks
 
-Repeated login/MFA failures, staff recovery-code use and operator factor reset create coalesced Admin-only security notifications and immutable audit records. Review them in the existing notification/audit screens. A bounded per-process request limiter precedes authentication with a generous 30,000/minute socket-source ceiling so a shared institutional gateway does not consume a low shared login budget. PostgreSQL continues to enforce the stricter canonical-account/MFA/write limits across instances. Configure provider availability, resource, database and failed-job alerts plus log retention separately. Validate trusted client identity at the edge; arbitrary forwarding headers remain untrusted. Cover direct Render ingress as well as Vercel so one path cannot bypass edge limits.
+Repeated password sign-in failures create coalesced Admin-only security notifications and immutable audit records. Review them in the existing notification/audit screens. A bounded per-process request limiter precedes authentication with a generous 30,000/minute socket-source ceiling so a shared institutional gateway does not consume a low shared login budget. PostgreSQL continues to enforce the stricter canonical-account/password-confirmation/write limits across instances. Configure provider availability, resource, database and failed-job alerts plus log retention separately. Validate trusted client identity at the edge; arbitrary forwarding headers remain untrusted. Cover direct Render ingress as well as Vercel so one path cannot bypass edge limits.
 
 GitHub workflows use pinned action commits and limited permissions. Security checks run on pushes, PRs and a weekly schedule:
 
@@ -80,7 +65,7 @@ GitHub workflows use pinned action commits and limited permissions. Security che
 - Trivy scans the built image for fixable high/critical OS/library vulnerabilities. Unfixed advisories require review; this gate does not certify their absence.
 - Dependabot proposes dependency/action updates for review. Updates are not automatically merged.
 
-The gate resolves CodeQL query-pack extension descriptors and rejects missing/inconsistent metadata. `.github/codeql-reviewed.json` records one traced false positive: CodeQL treats the randomly generated 256-bit MFA challenge cookie as a human password. Its SHA-256 lookup digest is appropriate for that random token; human passwords use scrypt. This exception matches the exact rule/location/flow, checks the complete token-generation/hashing source hashes and expires on 28 November 2026. A changed source, different flow, expired review or any other high/critical result blocks the gate. Re-review the evidence rather than extending or broadening the exception automatically.
+The gate resolves CodeQL query-pack extension descriptors and rejects missing/inconsistent metadata. `.github/codeql-reviewed.json` currently contains no exceptions: the earlier random-MFA-cookie trace was removed with the authenticator flow. All high/critical results block unless separately reviewed with exact source/flow/hash evidence and an expiry; the generic gate tests retain those safeguards.
 
 The image scan also covers npm's globally bundled dependencies, which application lockfiles and `npm audit --prefix backend` do not cover. The Dockerfile temporarily replaces vulnerable global npm `undici`/`brace-expansion` packages with verified patch versions from an isolated install; it does not resolve npm's development workspaces or exclude findings. Keep the image gate and runtime startup test enabled when updating/removing that workaround.
 

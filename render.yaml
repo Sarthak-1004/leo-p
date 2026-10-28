@@ -21,6 +21,8 @@ services:
         value: "10000"
       - key: ACCESS_TIMEZONE
         value: Asia/Kolkata
+      # Retired sign-in key: preserve the existing value for rollback only.
+      # Password-only authentication does not read or require it.
       - key: MFA_ENCRYPTION_KEY
         generateValue: true
       - key: BACKUP_ENCRYPTION_KEY

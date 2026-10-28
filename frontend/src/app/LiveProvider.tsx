@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState,type ReactNode } from "react";
-import { PortalContext,type PreviewState,type PreviewValue,type SessionUser,type MfaChallenge } from "./context";
+import { PortalContext,type PreviewState,type PreviewValue,type SessionUser } from "./context";
 import { api,ApiError,setCsrf } from "../services/api";
 import type { Result,TestAttempt,Question } from "../types/domain";
 import {ReauthGate} from "../components/ReauthGate";
@@ -25,8 +25,7 @@ export function LiveProvider({children}:{children:ReactNode}) {
     loadMore:async()=>{const epoch=sessionEpoch.current;setOperations(n=>n+1);try{const more=await api<PreviewState>(`/bootstrap?offset=${data.nextOffset??500}`);if(epoch!==sessionEpoch.current)return;setData(old=>{const next={...old,hasMore:more.hasMore,nextOffset:more.nextOffset};for(const key of ["students","trainers","questions","results","attempts","notifications","auditEvents"] as const){const values=new Map<string,unknown>();for(const item of [...old[key],...more[key]])values.set(item.id,item);(next[key] as unknown)= [...values.values()];}return next;});}catch(e){setError(e instanceof Error?e.message:"Records could not be loaded");}finally{setOperations(n=>n-1);}},
     course:currentUser?.course??"GENERAL",setCourse:()=>{},trainerId:currentUser?.role==="trainer"?currentUser.id:"",setTrainerId:()=>{},refresh,
     retry:()=>{setStatus("loading");void refresh().catch(e=>{setError(e.message);setStatus("error");});},
-    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await api<{user:SessionUser;csrfToken:string}|MfaChallenge>("/auth/login",{method:"POST",body:{role,identifier,password}});if(epoch!==sessionEpoch.current)return;setCsrf(session.csrfToken);if("mfaRequired" in session){setStatus("ready");return session;}await acceptSession(session);},
-    finishMfa:async code=>{const epoch=++sessionEpoch.current;const result=await api<{user:SessionUser;csrfToken:string}|{recoveryCodes:string[]}>(code===undefined?"/auth/mfa/complete":"/auth/mfa/verify",{method:"POST",body:code===undefined?{}:{code}});if(epoch!==sessionEpoch.current)return;if("recoveryCodes" in result)return result;await acceptSession(result);},
+    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await api<{user:SessionUser;csrfToken:string}>("/auth/login",{method:"POST",body:{role,identifier,password}});if(epoch!==sessionEpoch.current)return;if(!session.user||!session.csrfToken)throw new Error("Sign-in service is updating. Try again shortly.");await acceptSession(session);},
     logout:async()=>{sessionEpoch.current++;try{await api("/auth/logout",{method:"POST"});setCsrf("");setUser(undefined);setData(empty);setAuth("anonymous");setStatus("ready");}catch(e){setError(e instanceof Error?e.message:"Sign out failed. Try again");}},
     updateStudent:s=>mutation(`/admin/students/${encodeURIComponent(s.id)}`,"PUT",{id:s.id,name:s.name,course:s.course,startDate:s.startDate,expiryDate:s.expiryDate,enabled:s.enabled,trainerId:s.trainerId??null,movePending:s.movePending??false,...(s.password?{password:s.password}:{}),...(s.contacts?{contacts:s.contacts}:{})}),
     updateTrainer:t=>mutation(`/admin/trainers/${encodeURIComponent(t.id)}`,"PUT",{...t}),

@@ -5,10 +5,7 @@ import {resolve} from "node:path";
 import assert from "node:assert/strict";
 import {database} from "../src/db.js";
 import {hashPassword,audit} from "../src/auth.js";
-import {encryptMfa} from "../src/mfa.js";
-import {loadConfig} from "../src/config.js";
 import {createBackup,restoreBackup} from "../src/backup.js";
-import {Secret} from "otpauth";
 const input=process.env.TEST_BACKUP_DATABASE_URL;
 if(!input||process.env.NODE_ENV==="production")throw new Error("Use an explicitly configured local test database only");
 const base=new URL(input);if(!["127.0.0.1","localhost","[::1]"].includes(base.hostname))throw new Error("Recovery verification is restricted to local disposable databases");
@@ -19,8 +16,8 @@ await owner.query(`CREATE DATABASE "${sourceName}"`);await owner.query(`CREATE D
 const db=database(source.href),restored=database(target.href);
 try{
   const migration=new Client({connectionString:source.href});await migration.connect();try{for(const dir of readdirSync("prisma/migrations").filter(n=>/^\d/.test(n)).sort())await migration.query(readFileSync(`prisma/migrations/${dir}/migration.sql`,"utf8"));}finally{await migration.end();}
-  const mfaKey=randomBytes(32).toString("base64"),config=loadConfig({NODE_ENV:"test",DATABASE_URL:source.href,MFA_ENCRYPTION_KEY:mfaKey});
-  const cipher=encryptMfa(new Secret({size:20}).base32, "restore-admin",config),passwordHash=await hashPassword("Synthetic-backup-only-password");
+  // Retired optional fields remain restorable for existing databases/backups.
+  const cipher=`legacy-retired-${randomBytes(32).toString("base64url")}`,passwordHash=await hashPassword("Synthetic-backup-only-password");
   await db.user.create({data:{id:"restore-admin",name:"Synthetic restore Admin",role:"ADMIN",passwordHash,mfaSecret:cipher,mfaVersion:1}});
   await db.user.create({data:{id:"restore-student",name:"Synthetic restore Student",role:"STUDENT",passwordHash,student:{create:{course:"GENERAL",startDate:"2020-01-01",expiryDate:"2099-01-01",contacts:{create:{phone:"SYNTHETIC-BACKUP-CONTACT"}}}}}});
   await audit(db,"restore-admin","Synthetic recovery verification","test");
@@ -31,5 +28,5 @@ try{
   assert.equal((await restored.user.findUniqueOrThrow({where:{id:"restore-admin"}})).mfaSecret,cipher);
   const log=await restored.auditLog.findFirstOrThrow();await assert.rejects(()=>restored.auditLog.update({where:{id:log.id},data:{action:"tampered"}}));
   await assert.rejects(()=>restoreBackup(file,secret,target.href),/empty/);assert.equal(await restored.user.count(),2);
-  console.log(`Encrypted backup/restore verified (${archived.bytes} bytes): records, MFA ciphertext, immutable audit and overwrite guard.`);
+  console.log(`Encrypted backup/restore verified (${archived.bytes} bytes): records, retained legacy fields, immutable audit and overwrite guard.`);
 }finally{await db.$disconnect();await restored.$disconnect();await owner.query(`DROP DATABASE "${sourceName}"`);await owner.query(`DROP DATABASE "${targetName}"`);await owner.end();}

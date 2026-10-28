@@ -12,7 +12,7 @@ npm ci --prefix frontend
 npm --prefix backend run db:generate
 ```
 
-Create `backend/.env` from `backend/.env.example` if it does not exist, preserving any existing configuration. Prepare separate local encryption keys without printing them:
+Create `backend/.env` from `backend/.env.example` if it does not exist, preserving any existing configuration. Sign-in needs no authenticator or encryption key. To use encrypted database backups, prepare the separate backup key without printing it:
 
 ```powershell
 npm --prefix backend run security:prepare
@@ -42,7 +42,7 @@ npm run dev:web
 
 Open the Vite URL (normally http://localhost:5173), then `/admin/login`. APP_ORIGIN must exactly match the browser origin; use localhost as configured, or change APP_ORIGIN when using 127.0.0.1. Students and Trainers use separate login pages and Admin-issued credentials.
 
-Admin and Trainer sign-in requires an authenticator app. First sign-in verifies setup and displays ten one-use recovery codes before opening the portal. Save them privately. Sensitive staff changes require verification renewed within five minutes. Students keep the office-issued password flow. See [security operations](docs/SECURITY_OPERATIONS.md) for recovery, backups and deployment checks.
+All roles sign in with email or their assigned ID and password, with no authenticator setup or code. Student emails use Admin-managed contact records; shared emails require the assigned ID. Sensitive staff changes request password-only confirmation after five minutes. Accounts remain Admin-managed, with no public signup or Student password-reset flow. See [security operations](docs/SECURITY_OPERATIONS.md) for backups and deployment checks.
 
 A Docker PostgreSQL alternative is in compose.yaml. Supply POSTGRES_PASSWORD and update DATABASE_URL to match. Do not run it on the same port as the native development runner.
 

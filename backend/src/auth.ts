@@ -38,7 +38,6 @@ export async function authenticate(db: Db, req: FastifyRequest, config: Config, 
   assert(token && token.length <= 256, 401, "Sign in to continue");
   const session = await db.session.findUnique({ where: { tokenHash: digest(token) }, include: { user: { include: { student: true } } } });
   assert(session && session.expiresAt > new Date() && session.user.enabled && session.authVersion === session.user.authVersion, 401, "Your session has ended. Sign in again");
-  assert(session.user.role==="STUDENT"||(session.user.mfaSecret&&session.mfaVerifiedAt&&session.mfaVersion===session.user.mfaVersion),401,"Complete staff two-step sign-in");
   if (!["GET","HEAD","OPTIONS"].includes(req.method)) {
     assert(req.headers.origin === config.APP_ORIGIN, 403, "Request origin is not permitted");
     assert(req.headers["x-csrf-token"] === session.csrfToken, 403, "Refresh your session before saving");
@@ -59,11 +58,10 @@ export async function throttle(db: Db, key: string, limit: number, seconds: numb
   if (row[0]!.count > limit) throw new ApiError(429, "Too many requests. Try again later");
   return row[0]!.count;
 }
-export async function sessionFor(db: Db|Tx, user: User, config: Config,verifiedMfa=false) {
+export async function sessionFor(db: Db|Tx, user: User, config: Config) {
   const token = randomBytes(32).toString("base64url");
   const csrfToken = randomBytes(32).toString("base64url");
-  const verified=verifiedMfa&&user.role!=="STUDENT"&&!!user.mfaSecret;
-  await db.session.create({ data: { tokenHash: digest(token), userId: user.id, authVersion: user.authVersion, csrfToken, expiresAt: new Date(Date.now()+config.SESSION_HOURS*3600000),mfaVersion:user.mfaVersion,mfaVerifiedAt:verified?new Date():null,reauthUntil:verified?new Date(Date.now()+300000):null } });
+  await db.session.create({ data: { tokenHash: digest(token), userId: user.id, authVersion: user.authVersion, csrfToken, expiresAt: new Date(Date.now()+config.SESSION_HOURS*3600000),reauthUntil:user.role!=="STUDENT"?new Date(Date.now()+300000):null } });
   return { token, csrfToken };
 }
 export const academicSelect = { id:true, course:true, startDate:true, expiryDate:true, trainerId:true, user:{select:{name:true,enabled:true}} } as const;

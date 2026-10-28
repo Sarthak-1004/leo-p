@@ -42,8 +42,8 @@
 - Enforce role, course, account status, dates, ownership, publication, availability, attempt limits and release on the server. Frontend hiding is insufficient.
 - Strip student contact details from all Trainer responses, search, reports and exports at the backend. Trainer views must never fetch and merely hide contacts.
 - Hash passwords securely. Never commit .env files or expose secrets/plaintext credentials in frontend code or logs.
-- Admin/Trainer MFA is mandatory. Preserve pending-challenge isolation, encrypted TOTP secrets, one-use recovery codes and recent authentication for sensitive staff writes. Never add a production/development MFA bypass toggle. Student sign-in remains password-only with no self-registration/reset.
-- Production requires MFA_ENCRYPTION_KEY. Preserve existing encryption keys; never regenerate them on each restart. Recovery and encrypted-backup procedures are in docs/SECURITY_OPERATIONS.md. Restore checks must use a local disposable database and must never overwrite live data.
+- The later 28 October user decision requires email/assigned ID plus password for every role. Do not restore authenticator enrollment, verification, QR/recovery codes or a factor requirement. Sensitive staff changes use password-only confirmation. Accounts remain Admin-managed; no public signup or Student self-registration/reset.
+- MFA schema/migration fields and existing deployment keys are retired compatibility data, not authentication requirements. Preserve existing keys and records for rollback; do not regenerate or drop them. Encrypted-backup procedures remain in docs/SECURITY_OPERATIONS.md, and restore checks must never overwrite live data.
 - Production persistence must use real PostgreSQL. In-memory/mock/browser persistence must never become production persistence.
 - Protect media and answer keys; store permitted audio/images in object storage. No Speaking recordings are collected in this scope.
 - Do not promise completed AI/audio/XLSX/import/heartbeat integrations when only preview behavior exists.

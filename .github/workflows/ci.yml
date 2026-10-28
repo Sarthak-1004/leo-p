@@ -51,7 +51,7 @@ jobs:
           docker run --rm portal-ci openssl version
       - name: Check Render startup, private API and SPA navigation
         run: |
-          docker run --detach --rm --memory=512m --memory-swap=512m --name portal-ci --network host -e DATABASE_URL -e APP_ORIGIN -e PORT=10000 -e MFA_ENCRYPTION_KEY=CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws= -e BOOTSTRAP_ADMIN_ID=ci-admin -e BOOTSTRAP_ADMIN_PASSWORD=CI-synthetic-password-only portal-ci /app/backend/scripts/start-container.sh
+          docker run --detach --rm --memory=512m --memory-swap=512m --name portal-ci --network host -e DATABASE_URL -e APP_ORIGIN -e PORT=10000 -e BOOTSTRAP_ADMIN_ID=ci-admin -e BOOTSTRAP_ADMIN_PASSWORD=CI-synthetic-password-only portal-ci /app/backend/scripts/start-container.sh
           curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:10000/api/health
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:10000/api/bootstrap)" = "401"
           curl --fail --head http://127.0.0.1:10000/student/dashboard

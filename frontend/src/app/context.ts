@@ -2,7 +2,6 @@ import { createContext } from "react";
 import type { AuditEvent, Course, MockTest, Notification, PlatformSettings, PracticeRecord, Progress, Question, Result, Student, TestAttempt, Trainer, Role } from "../types/domain";
 type Awaitable<T> = T | Promise<T>;
 export interface SessionUser { id:string;name:string;role:Role;email?:string;course?:Course;accessActive:boolean;startDate?:string;expiryDate?:string; }
-export interface MfaChallenge {mfaRequired:true;enrollmentRequired:boolean;csrfToken:string;}
 export interface PreviewState {
   statistics?:{students:number;activeStudents:number;generalStudents:number;academicStudents:number;trainers:number;results:number;pending:number;ready:number;unlocked:number};
   hasMore?:boolean;nextOffset?:number;
@@ -13,7 +12,7 @@ export interface PreviewValue extends PreviewState {
   mode:"demo"|"live";currentUser?:SessionUser;authStatus:"loading"|"anonymous"|"authenticated";
   loadMore?:()=>Promise<void>;
   pending:boolean;error:string;clearError:()=>void;
-  login:(role:Role,id:string,password:string)=>Promise<void|MfaChallenge>;finishMfa?:(code?:string)=>Promise<void|{recoveryCodes:string[]}>;logout:()=>Promise<void>;refresh:()=>Promise<void>;
+  login:(role:Role,id:string,password:string)=>Promise<void>;logout:()=>Promise<void>;refresh:()=>Promise<void>;
   course:Course;setCourse:(course:Course)=>void;trainerId:string;setTrainerId:(id:string)=>void;
   status:"loading"|"ready"|"error";retry:()=>void;
   updateStudent:(student:Student)=>Awaitable<void|boolean>;updateTrainer:(trainer:Trainer)=>Awaitable<void|boolean>;

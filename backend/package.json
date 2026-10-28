@@ -16,8 +16,6 @@
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "setup": "tsx --env-file-if-exists=.env scripts/setup.ts",
     "security:prepare": "tsx --env-file-if-exists=.env scripts/prepare-security.ts",
-    "security:reset-mfa": "tsx --env-file-if-exists=.env scripts/reset-mfa.ts",
-    "security:reset-mfa:production": "node --env-file-if-exists=.env dist/scripts/reset-mfa.js",
     "backup": "tsx --env-file-if-exists=.env scripts/backup.ts",
     "backup:production": "node --env-file-if-exists=.env dist/scripts/backup.js",
     "backup:verify-test": "tsx scripts/verify-backup.ts",
@@ -41,10 +39,8 @@
     "exceljs": "^4.4.0",
     "fastify": "^5.12.7",
     "mpg123-decoder": "^1.0.3",
-    "otpauth": "^9.5.2",
     "pg": "^8.16.0",
     "prisma": "7.10.1",
-    "qrcode": "^1.5.4",
     "sharp": "^0.35.5",
     "zod": "^4.0.0"
   },
@@ -56,7 +52,6 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/pg": "^8.0.0",
-    "@types/qrcode": "^1.5.6",
     "embedded-postgres": "18.4.0-beta.17",
     "tsx": "^4.0.0",
     "typescript": "~6.0.2"
