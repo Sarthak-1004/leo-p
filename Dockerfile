@@ -15,7 +15,11 @@ FROM base AS runtime
 ENV NODE_ENV=production
 WORKDIR /app/backend
 COPY backend/package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+# Patch npm's own bundled libraries until the upstream image includes these fixes.
+# App lockfiles do not govern this global tooling tree; keep the image scan enabled.
+RUN npm ci --omit=dev \
+    && npm install --prefix /usr/local/lib/node_modules/npm --no-save --omit=dev --ignore-scripts --package-lock=false undici@6.29.1 brace-expansion@5.0.12 \
+    && npm cache clean --force
 COPY --from=build /app/backend/dist ./dist
 COPY --from=build /app/backend/content ./content
 COPY --from=build /app/backend/prisma ./prisma

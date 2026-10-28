@@ -9,3 +9,28 @@ for(const [name,severity,result,expected] of [["high findings block",9.1,true,1]
   const child=spawnSync(process.execPath,["scripts/check-sarif.mjs",dir],{encoding:"utf8"});assert.equal(child.status,expected,child.stderr);
 });
 test("missing results fail closed",()=>{const dir=mkdtempSync(resolve("tmp/sarif-empty-"));const child=spawnSync(process.execPath,["scripts/check-sarif.mjs",dir],{encoding:"utf8"});assert.equal(child.status,1);});
+
+function checkReport(report){
+  const dir=mkdtempSync(resolve("tmp/sarif-extension-"));
+  writeFileSync(resolve(dir,"results.sarif"),JSON.stringify(report));
+  return spawnSync(process.execPath,["scripts/check-sarif.mjs",dir],{encoding:"utf8"});
+}
+for(const severity of [4.2,9.1])test(`query-pack extension severity ${severity} is enforced`,()=>{
+  const child=checkReport({runs:[{tool:{driver:{rules:[]},extensions:[{name:"codeql/javascript-queries",rules:[{id:"extension-rule",properties:{"security-severity":severity}}]}]},results:[{ruleId:"extension-rule",ruleIndex:0,rule:{id:"extension-rule",index:0,toolComponent:{index:0}}}]}]});
+  assert.equal(child.status,severity>=7?1:0,child.stderr);
+  if(severity>=7)assert.match(child.stderr,/extension-rule: severity 9.1/);
+});
+test("extension reference by name resolves its own rules",()=>{
+  const child=checkReport({runs:[{tool:{driver:{rules:[]},extensions:[{name:"pack",rules:[{id:"rule",properties:{"security-severity":8}}]}]},results:[{rule:{id:"rule",toolComponent:{name:"pack"}}}]}]});
+  assert.equal(child.status,1);assert.match(child.stderr,/rule: severity 8/);
+});
+test("unknown extension fails closed despite a matching driver rule",()=>{
+  const child=checkReport({runs:[{tool:{driver:{rules:[{id:"rule",properties:{"security-severity":1}}]},extensions:[]},results:[{rule:{id:"rule",toolComponent:{index:0}}}]}]});
+  assert.equal(child.status,1);assert.match(child.stderr,/no matching tool component/);
+});
+test("missing or inconsistent rule descriptors fail closed",()=>{
+  for(const result of [{ruleId:"missing"},{ruleId:"rule",ruleIndex:1}]){
+    const child=checkReport({runs:[{tool:{driver:{rules:[{id:"rule",properties:{"security-severity":1}}]}},results:[result]}]});
+    assert.equal(child.status,1);assert.match(child.stderr,/metadata|disagree/);
+  }
+});
