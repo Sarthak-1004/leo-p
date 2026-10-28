@@ -438,12 +438,9 @@ main:focus {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: #003bb5;
+  background: var(--color-navy);
   color: white;
   padding: 28px 16px 20px;
-}
-.sidebar-content.admin-sidebar {
-  background: #001550;
 }
 .brand {
   display: flex;
@@ -498,13 +495,9 @@ main:focus {
   color: white;
 }
 .nav-item.active {
-  background: white;
-  color: #003bb5;
-  box-shadow: 0 4px 8px #00155012;
-}
-.admin-sidebar .nav-item.active {
-  background: #2554d7;
+  background: var(--color-primary-container);
   color: white;
+  box-shadow: 0 4px 8px #00155012;
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -1115,15 +1108,12 @@ td small {
   grid-template-columns: 1fr 1fr;
 }
 .auth-aside {
-  background: #003bb5;
+  background: var(--color-navy);
   color: white;
   padding: 70px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-}
-.auth-aside.admin {
-  background: #001550;
 }
 .auth-aside h1 {
   font-size: 46px;

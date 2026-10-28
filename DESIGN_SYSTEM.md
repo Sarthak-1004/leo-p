@@ -12,6 +12,8 @@ Modern education SaaS: premium, minimal, clean, professional, spacious, and easy
 
 ## Foundations
 
+Approved 28 October 2026: use the Admin palette across Admin, Trainer and Student portals. All desktop sidebars, collapsed navigation, mobile drawers and login side panels use the shared navy token `--color-navy` (`#001550`). Active navigation uses `--color-primary-container` (`#2554d7`) with white text in every role. Buttons and other shared controls retain the common primary tokens. This approval supersedes the historical role-specific sidebar/login color differences recorded below.
+
 | Area | Standard |
 | --- | --- |
 | Typography | Derive font family, weights, and scale from Stitch. Use consistent page-title, section-title, body, label, and supporting-text roles. Preserve readable mobile text and clear numeric scores/timers. |

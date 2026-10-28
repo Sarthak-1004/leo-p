@@ -48,7 +48,7 @@ export function Sidebar({
   const {mode,logout}=usePreview();
   return (
     <div
-      className={`sidebar-content ${admin ? "admin-sidebar" : ""} ${collapsed ? "compact" : ""}`}
+      className={`sidebar-content ${collapsed ? "compact" : ""}`}
     >
       <Link
         to={admin ? "/admin/dashboard" : trainer ? "/trainer/dashboard" : "/student/dashboard"}
