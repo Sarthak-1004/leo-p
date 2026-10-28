@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import { admin, audit, type Identity } from "./auth.js";
 import { assert } from "./domain.js";
 import {platformSettings} from "./settings.js";
+import {validateMedia} from "./media-validation.js";
 export class Storage {
   private client:S3Client;
   constructor(private config:Config) { this.client=new S3Client({region:config.S3_REGION,endpoint:config.S3_ENDPOINT,forcePathStyle:!!config.S3_ENDPOINT,credentials:config.S3_ACCESS_KEY_ID&&config.S3_SECRET_ACCESS_KEY?{accessKeyId:config.S3_ACCESS_KEY_ID,secretAccessKey:config.S3_SECRET_ACCESS_KEY}:undefined}); }
@@ -23,13 +24,8 @@ export class Storage {
   }
   async upload(db:Db,user:Identity,filename:string,body:Buffer) {
     admin(user);const limit=(await platformSettings(db)).mediaLimitMb;assert(body.length>0&&body.length<=limit*1024*1024,400,`Choose media up to ${limit} MB`);
-    let contentType="";
-    if(body.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))contentType="image/png";
-    else if(body[0]===255&&body[1]===216&&body[2]===255)contentType="image/jpeg";
-    else if(body.toString("ascii",0,4)==="RIFF"&&body.toString("ascii",8,12)==="WEBP")contentType="image/webp";
-    else if(body.toString("ascii",0,3)==="ID3"||(body[0]===255&&(body[1]!&0xe0)===0xe0))contentType="audio/mpeg";
-    else if(body.toString("ascii",0,4)==="RIFF"&&body.toString("ascii",8,12)==="WAVE")contentType="audio/wav";
-    assert(contentType,400,"Use PNG, JPEG, WebP, MP3 or WAV files");
+    const validated=await validateMedia(body),contentType=validated.contentType;body=validated.body;
+    assert(body.length<=limit*1024*1024,400,`Decoded media exceeds ${limit} MB`);
     const key=`assessment/${randomUUID()}`;
     await this.client.send(new PutObjectCommand({Bucket:this.bucket(),Key:key,Body:body,ContentType:contentType}));
     const asset=await db.asset.create({data:{key,filename:filename.replace(/[\r\n\\/]/g,"_").slice(0,200),contentType,size:body.length,uploadedBy:user.id}});

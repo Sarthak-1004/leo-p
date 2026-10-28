@@ -8,6 +8,10 @@ Set server environment variables from `backend/.env.example`. Use a secret manag
 
 S3_BUCKET, S3_REGION and the provider credentials/endpoint enable media uploads. An AWS IAM role may supply credentials instead of static keys. Keep bucket contents private. Grant the application only needed object read/write permissions for its bucket. Student downloads go through an authenticated entitlement check; Speaking recordings are excluded.
 
+Uploads now decode and normalize PNG/JPEG/WebP images (up to 16 million pixels), validate/decode MP3 streams with metadata removed, and validate complete PCM/IEEE-float mono/stereo WAV containers. The output must fit the configured media byte limit. Concurrent validation returns a retryable busy response. Format validation does not replace malware scanning. The backend's locked Sharp native packages and MP3 worker must remain installed in the production image; verify an upload of each supported format after deployment.
+
+Login limits use canonical accounts across ID/email aliases, with an additional source/account bucket. Shared proxy addresses no longer share a low global login lockout across unrelated users. Forwarded headers are deliberately not trusted without a verified ingress policy. Add and validate client-aware edge abuse controls for both Vercel and direct Render access; do not enable unconditional proxy trust. Password hashes upgrade from legacy scrypt p=1 to p=3 on successful login, using a conditional update that preserves concurrent Admin resets. Inactive legacy accounts keep their old hash until login or an Admin credential reset; there is no plaintext password available for bulk rehashing.
+
 OPENAI_API_KEY and OPENAI_MODEL enable Writing evaluation. The example model is configurable, and OPENAI_BASE_URL supports an approved replacement endpoint. Configure project spending limits and verify rubric/output quality with client-approved essays before enabling production evaluation. Missing configuration gives an explicit failed/manual-review state; it does not fabricate scores. Automated tests exercise a deterministic provider contract, not paid live AI calls.
 
 ## Build and migrate

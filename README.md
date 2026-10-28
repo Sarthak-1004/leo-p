@@ -12,6 +12,12 @@ npm ci --prefix frontend
 npm --prefix backend run db:generate
 ```
 
+Create `backend/.env` from `backend/.env.example` if it does not exist, preserving any existing configuration. Prepare separate local encryption keys without printing them:
+
+```powershell
+npm --prefix backend run security:prepare
+```
+
 In a terminal, start development PostgreSQL (real persistent PostgreSQL, bound to loopback):
 
 ```powershell
@@ -27,7 +33,7 @@ npm --prefix backend run setup
 
 Setup asks for the initial Admin ID and a masked password. It creates only a secure password hash and 40 draft FLT slots per course. No demo students/results or ready-made tests are inserted. There is no default Admin password. The migrations were applied successfully to the local development database during implementation; first-Admin setup remains for the account owner to run.
 
-Copy `backend/.env.example` to `backend/.env` and configure the server. The template's local DATABASE_URL matches the development runner. Keep real keys/passwords out of Git. Start the two application processes in separate terminals:
+The template's local DATABASE_URL matches the development runner. Keep real keys/passwords out of Git. Start the two application processes in separate terminals:
 
 ```powershell
 npm run dev:api
@@ -35,6 +41,8 @@ npm run dev:web
 ```
 
 Open the Vite URL (normally http://localhost:5173), then `/admin/login`. APP_ORIGIN must exactly match the browser origin; use localhost as configured, or change APP_ORIGIN when using 127.0.0.1. Students and Trainers use separate login pages and Admin-issued credentials.
+
+Admin and Trainer sign-in requires an authenticator app. First sign-in verifies setup and displays ten one-use recovery codes before opening the portal. Save them privately. Sensitive staff changes require verification renewed within five minutes. Students keep the office-issued password flow. See [security operations](docs/SECURITY_OPERATIONS.md) for recovery, backups and deployment checks.
 
 A Docker PostgreSQL alternative is in compose.yaml. Supply POSTGRES_PASSWORD and update DATABASE_URL to match. Do not run it on the same port as the native development runner.
 
@@ -53,7 +61,7 @@ A Docker PostgreSQL alternative is in compose.yaml. Supply POSTGRES_PASSWORD and
 
 ## Content deferral and launch configuration
 
-S3-compatible storage and OpenAI Writing adapters are implemented but require real provider configuration. The optional example Writing model is configurable in backend/.env.example. No paid AI call, external S3 account or production deployment was performed. Manual evaluation is available while AI is unconfigured.
+S3-compatible storage and OpenAI Writing adapters require real provider configuration. The optional example Writing model is configurable in backend/.env.example. Local tests use isolated substitutes and make no paid AI calls. Hosted verification is recorded separately. Manual evaluation is available while AI is unconfigured.
 
 Real papers, questions, audio and images are deliberately deferred for your later upload. The media library and question/test CSV/XLSX imports are ready. Provide complete licensed questions, answer keys, audio, task images and full raw-to-band tables before publishing tests. The supplied SOW omits the lowest conversions; they are deliberately not invented. Practice Mock production counts await confirmation. Question/test-structure and assignment import, paginated list controls, additional record loading, session/throttle cleanup and deduplicated access-expiry reminders are implemented. Production monitoring/load/restore checks and client UAT remain launch work.
 

@@ -1,10 +1,11 @@
+import {login} from "./auth";
 import {test,expect} from "@playwright/test";
 import {mkdir} from "node:fs/promises";
 import {resolve} from "node:path";
 
 test("connected staff screens remain readable across six widths",async({page})=>{
   test.setTimeout(180000);
-  await page.goto("/admin/login");await page.getByLabel("Admin ID",{exact:true}).fill("admin");await page.getByLabel("Password",{exact:true}).fill("E2e-fixture-password-only");await page.getByRole("button",{name:"Sign in",exact:true}).click();await expect(page).toHaveURL(/admin\/dashboard$/);
+  await login(page, "admin");
   const folder=resolve("../tmp/design-audit/live");await mkdir(folder,{recursive:true});
   const paths=["/admin/reports","/admin/settings","/admin/imports","/admin/media","/admin/operations","/admin/audit","/admin/notifications","/admin/mock-tests/GENERAL/mock-01/builder"];
   for(const width of [1440,1280,1024,768,430,390]){

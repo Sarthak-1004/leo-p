@@ -1,17 +1,20 @@
 import {validatePracticePack,installPracticePack} from "../src/practice-pack.js";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID,randomBytes,scryptSync } from "node:crypto";
 import {createServer} from "node:http";
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import EmbeddedPostgres from "embedded-postgres";
 import ExcelJS from "exceljs";
+import sharp from "sharp";
+import {Secret,TOTP} from "otpauth";
+import {encryptMfa,resetStaffMfa} from "../src/mfa.js";
 import { database, json, type Db } from "../src/db.js";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { defaultConversions, defaultSettings } from "../src/domain.js";
-import { hashPassword } from "../src/auth.js";
+import { hashPassword,sessionFor } from "../src/auth.js";
 import { parseImport,previewImport,confirmImport,csvExport } from "../src/imports.js";
 import {maintain} from "../src/maintenance.js";
 import {today} from "../src/domain.js";
@@ -21,6 +24,7 @@ const secret=`Test-only-${randomUUID()}`;
 const dbName=`kanan_test_${randomUUID().replaceAll("-","")}`;
 const origin="http://localhost:5173";
 const identities=new Map<string,{cookie:string;csrf:string}>();
+const testMfaKey=Buffer.alloc(32,11).toString("base64"),otpSeeds=new Map<string,string>();
 let testNumber=1;
 before(async()=>{
   mkdirSync(resolve(".test-data"),{recursive:true});
@@ -32,14 +36,17 @@ before(async()=>{
   db=database(url);
   const hash=await hashPassword(secret);
   for(const [id,role] of [["admin","ADMIN"],["trainer","TRAINER"],["s1","STUDENT"],["s2","STUDENT"],["academic","STUDENT"],["expired","STUDENT"]] as const) {
-    await db.user.create({data:{id,role,name:id,passwordHash:hash,email:role==="TRAINER"?"trainer@example.test":null}});
+    const seed=new Secret({size:20}).base32;otpSeeds.set(id,seed);
+    await db.user.create({data:{id,role,name:id,passwordHash:hash,email:role==="TRAINER"?"trainer@example.test":null,...(role!=="STUDENT"?{mfaSecret:encryptMfa(seed,id,loadConfig({DATABASE_URL:url,MFA_ENCRYPTION_KEY:testMfaKey})),mfaVersion:1}:{})}});
     if(role==="STUDENT")await db.student.create({data:{id,course:id==="academic"?"ACADEMIC":"GENERAL",startDate:"2020-01-01",expiryDate:id==="expired"?"2020-01-02":"2099-01-01",trainerId:"trainer",contacts:{create:{phone:"private-phone",email:"private-email",address:"private-address",guardianContact:"private-guardian"}}}});
   }
   await db.platformSetting.create({data:{id:"platform",value:defaultSettings}});
-  app=await buildApp(db,loadConfig({NODE_ENV:"test",DATABASE_URL:url,APP_ORIGIN:origin}));await app.ready();
+  app=await buildApp(db,loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:url,APP_ORIGIN:origin}));await app.ready();
   for(const id of ["admin","trainer","s1","s2","academic","expired"]) {
-    const r=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:id==="admin"?"admin":id==="trainer"?"trainer":"student",identifier:id,password:secret}});
-    assert.equal(r.statusCode,200,r.body);identities.set(id,{cookie:r.cookies[0]!.name+"="+r.cookies[0]!.value,csrf:r.json().csrfToken});
+    let r=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:id==="admin"?"admin":id==="trainer"?"trainer":"student",identifier:id,password:secret}});
+    assert.equal(r.statusCode,200,r.body);
+    if(id==="admin"||id==="trainer"){const cookie=r.cookies.find(c=>c.name==="kanan_mfa")!;r=await app.inject({method:"POST",url:"/api/auth/mfa/verify",headers:{origin,cookie:`kanan_mfa=${cookie.value}`,"x-csrf-token":r.json().csrfToken},payload:{code:new TOTP({secret:Secret.fromBase32(otpSeeds.get(id)!)}).generate()}});assert.equal(r.statusCode,200,r.body);}
+    const cookie=r.cookies.find(c=>c.name==="kanan_session"&&c.value)!;identities.set(id,{cookie:`kanan_session=${cookie.value}`,csrf:r.json().csrfToken});
   }
 });
 after(async()=>{await app?.close();await db?.$disconnect();if(pg){await pg.dropDatabase(dbName);await pg.stop();}});
@@ -57,8 +64,12 @@ async function fixture(kind:"FLT"|"PRACTICE_MOCK"="PRACTICE_MOCK") {
 function payload(a:any,answers:Record<string,string>={}) {return {sessionKey:a.sessionKey,sequence:a.sequence+1,answers,section:0,question:0,theme:"standard",fontSize:"standard"};}
 async function submitted(kind:"FLT"|"PRACTICE_MOCK"="FLT") {
   const f=await fixture(kind);const started=await call("s1","POST",`/api/tests/GENERAL/${f.id}/start`);assert.equal(started.statusCode,200,started.body);
-  const a=started.json();const answers=Object.fromEntries(f.questions.filter(q=>q.skill!=="Writing").map(q=>[`${q.skill}:${q.id}`,"yes"]));
-  const sent=await call("s1","POST",`/api/attempts/${a.id}/submit`,payload(a,answers));assert.equal(sent.statusCode,200,sent.body);return a.id as string;
+  let a=started.json();const answers:Record<string,string>={};
+  for(const [section,skill] of ["Listening","Reading","Writing"].entries()){
+    for(const q of f.questions.filter(q=>q.skill===skill&&skill!=="Writing"))answers[`${q.skill}:${q.id}`]="yes";
+    const sent=await call("s1","POST",`/api/attempts/${a.id}/${section===2?"submit":"heartbeat"}`,{...payload(a,answers),section,completeSection:section<2});assert.equal(sent.statusCode,200,sent.body);a=sent.json().attempt;
+  }
+  return a.id as string;
 }
 test("unauthenticated, wrong-role, CSRF and origin requests are rejected",async()=>{
   const anonymous=await app.inject({url:"/api/bootstrap"});assert.equal(anonymous.statusCode,401);assert.equal(anonymous.headers["cache-control"],"no-store");
@@ -134,7 +145,7 @@ test("remarks, draft isolation, optimistic edits, Admin release and Speaking upd
   assert.equal(await db.scoreRevision.count({where:{resultId:id}}),2);
 });
 test("AI failure retains answers and permits manual evaluation",async()=>{
-  const id=await submitted();await runWritingJob(db,loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused"}));
+  const id=await submitted();await runWritingJob(db,loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:"postgresql://unused"}));
   assert.ok(await db.attempt.findUnique({where:{id}}));
   const configured=await call("trainer","POST",`/api/results/${id}/retry-ai`);assert.equal(configured.statusCode,503);
 });
@@ -171,7 +182,7 @@ test("AI output is stored while a manual approved Writing band remains authorita
   assert.equal((await call("trainer","PUT",`/api/results/${id}/evaluation`,{version:r.version,listening:9,reading:9,writing:7,remarks:"Manual reviewed score",completed:true})).statusCode,200);
   const originalFetch=globalThis.fetch;
   globalThis.fetch=async()=>new Response(JSON.stringify({output:[{content:[{type:"output_text",text:JSON.stringify({tasks:["Task 1","Task 2"].map((task,i)=>({task,criteria:{taskAchievement:6+i*0.5,coherence:6+i*0.5,lexical:6+i*0.5,grammar:6+i*0.5},feedback:"Specific training feedback",strengths:["Clear ideas"],weaknesses:["Develop detail"],improvements:["Use supporting examples"],corrections:[]}))})}]}]}),{status:200,headers:{"content-type":"application/json"}});
-  try{await runWritingJob(db,loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused",OPENAI_API_KEY:"test-provider-contract",OPENAI_MODEL:"configured-test-model"}));}finally{globalThis.fetch=originalFetch;}
+  try{await runWritingJob(db,loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:"postgresql://unused",OPENAI_API_KEY:"test-provider-contract",OPENAI_MODEL:"configured-test-model"}));}finally{globalThis.fetch=originalFetch;}
   const saved=await db.result.findUniqueOrThrow({where:{id}});assert.equal(saved.writing,7);assert.equal((saved.originalScores as any).aiWriting,6.5);assert.equal(await db.evaluationJob.count({where:{resultId:id,state:"COMPLETED"}}),1);
 });
 test("audit records are immutable at database level",async()=>{
@@ -187,7 +198,7 @@ test("test structures import as drafts without granting availability",async()=>{
 test("expiry reminders are recipient-scoped and scheduled only once",async()=>{
   const now=new Date(),expiry=today("Asia/Kolkata",new Date(now.getTime()+7*86400000));
   await db.student.update({where:{id:"s2"},data:{expiryDate:expiry}});
-  const config=loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused"});await maintain(db,config,now);await maintain(db,config,now);
+  const config=loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:"postgresql://unused"});await maintain(db,config,now);await maintain(db,config,now);
   assert.equal(await db.notification.count({where:{userId:"s2",dedupeKey:{startsWith:"expiry/"}}}),1);
   await db.student.update({where:{id:"s2"},data:{expiryDate:"2099-01-01"}});
 });
@@ -200,10 +211,10 @@ test("S3 adapter uploads permitted bytes and streams only entitled student media
     res.setHeader("content-length",data.length);res.setHeader("content-type","image/png");res.statusCode=200;res.end(req.method==="HEAD"?undefined:data);
   });
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));const port=(server.address() as any).port;
-  const mediaApp=await buildApp(db,loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused",APP_ORIGIN:origin,S3_ENDPOINT:`http://127.0.0.1:${port}`,S3_BUCKET:"test-private",S3_ACCESS_KEY_ID:"test-access",S3_SECRET_ACCESS_KEY:"test-secret"}));
+  const mediaApp=await buildApp(db,loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:"postgresql://unused",APP_ORIGIN:origin,S3_ENDPOINT:`http://127.0.0.1:${port}`,S3_BUCKET:"test-private",S3_ACCESS_KEY_ID:"test-access",S3_SECRET_ACCESS_KEY:"test-secret"}));
   try{
     const auth=identities.get("admin")!,boundary="media-boundary";
-    const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
+    const png=await sharp({create:{width:2,height:2,channels:3,background:"white"}}).png().toBuffer();
     const multipart=Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="chart.png"\r\nContent-Type: image/png\r\n\r\n`),png,Buffer.from(`\r\n--${boundary}--\r\n`)]);
     const upload=await mediaApp.inject({method:"POST",url:"/api/admin/assets",headers:{cookie:auth.cookie,origin,"x-csrf-token":auth.csrf,"content-type":`multipart/form-data; boundary=${boundary}`},payload:multipart});assert.equal(upload.statusCode,200,upload.body);const id=upload.json().id;
     const student=identities.get("s1")!;
@@ -211,7 +222,7 @@ test("S3 adapter uploads permitted bytes and streams only entitled student media
     await db.question.create({data:{id:`media-${randomUUID()}`,skill:"Reading",course:"GENERAL",questionType:"Matching",section:"Passage 1",title:"Chart",prompt:"Use this chart",passage:"Passage",options:[],answer:"yes",assetIds:[id],published:true,practiceEligible:true}});
     const download=await mediaApp.inject({url:`/api/assets/${id}/stream`,headers:{cookie:student.cookie}});assert.equal(download.statusCode,200,download.body);assert.deepEqual(download.rawPayload,png);
     assert.equal((await mediaApp.inject({url:`/api/assets/${id}/url`,headers:{cookie:student.cookie}})).statusCode,403);
-    const providerConfig=loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused",S3_ENDPOINT:`http://127.0.0.1:${port}`,S3_BUCKET:"test-private",S3_ACCESS_KEY_ID:"test-access",S3_SECRET_ACCESS_KEY:"test-secret"});
+    const providerConfig=loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:"postgresql://unused",S3_ENDPOINT:`http://127.0.0.1:${port}`,S3_BUCKET:"test-private",S3_ACCESS_KEY_ID:"test-access",S3_SECRET_ACCESS_KEY:"test-secret"});
     const request=await writingInput(db,providerConfig,"ACADEMIC",[{skill:"Writing",section:"Task 1",prompt:"Describe the chart",assetIds:[id]}],{"Writing:Task 1":"The chart shows growth."});assert.equal(request.tasks.length,1);assert.ok(request.input[0]!.content.some(c=>c.type==="input_image"&&c.image_url===`data:image/png;base64,${png.toString("base64")}`));
     assert.ok(!JSON.stringify(request).includes("test-secret"));
   }finally{await mediaApp.close();await new Promise<void>(resolve=>server.close(()=>resolve()));}
@@ -281,7 +292,7 @@ test("announcements and read-all are recipient-scoped; bulk course release skips
 test("saved records and authenticated sessions survive an API process restart",async()=>{
  const f=await fixture();const a=(await call("s1","POST",`/api/tests/GENERAL/${f.id}/start`)).json();const key=`Listening:${f.questions[0]!.id}`;
  await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,payload(a,{[key]:"yes"}));
- await app.close();const url=`postgresql://test_runner:test-runtime-only@127.0.0.1:55433/${dbName}`;app=await buildApp(db,loadConfig({NODE_ENV:"test",DATABASE_URL:url,APP_ORIGIN:origin}));await app.ready();
+ await app.close();const url=`postgresql://test_runner:test-runtime-only@127.0.0.1:55433/${dbName}`;app=await buildApp(db,loadConfig({MFA_ENCRYPTION_KEY:testMfaKey,NODE_ENV:"test",DATABASE_URL:url,APP_ORIGIN:origin}));await app.ready();
  const resumed=await call("s1","GET",`/api/attempts/${a.id}`);assert.equal(resumed.statusCode,200,resumed.body);assert.equal(resumed.json().answers[key],"yes");assert.equal(resumed.json().sequence,1);
 });
 
@@ -329,6 +340,130 @@ test("practice installation is Admin-only, preserves edited questions on rerun a
  const id=pack.questions[0]!.id;await db.question.update({where:{id},data:{prompt:"Staff reviewed question wording",published:true,version:{increment:1}}});
  assert.deepEqual(await installPracticePack(db,admin,pack),{created:0,skipped:40,published:0});const preserved=await db.question.findUniqueOrThrow({where:{id}});assert.equal(preserved.prompt,"Staff reviewed question wording");assert.equal(preserved.published,true);
  assert.equal(await db.test.count(),tests);assert.equal(await db.attempt.count(),attempts);
+});
+
+test("encoded API routes use authentication and cache policy regardless of raw spelling",async()=>{
+  for(const url of ["/%61pi/bootstrap","/%61pi/admin/operations","/%61pi/reports","/%61pi/attempts/missing","/%61pi/results/missing"]){
+    const r=await app.inject({url});assert.equal(r.statusCode,401,url);assert.equal(r.headers["cache-control"],"no-store");
+  }
+  assert.equal((await call("s1","GET","/%61pi/admin/operations")).statusCode,403);
+  assert.equal((await call("admin","GET","/%61pi/bootstrap")).statusCode,200);
+  assert.equal((await call("expired","GET","/api/auth/me?query=1")).statusCode,200);
+});
+test("Trainer bootstrap never enumerates draft questions or test builders; evaluation keys remain accessible",async()=>{
+  await db.question.create({data:{id:"000-security-private",skill:"Reading",course:"ACADEMIC",title:"Private draft",prompt:"SYNTHETIC-PRIVATE-DRAFT",questionType:"Completion",section:"Passage 1",options:[],answer:"SYNTHETIC-PRIVATE-KEY",published:false}});
+  for(const url of ["/api/bootstrap","/api/bootstrap?offset=1&limit=1"]){const r=await call("trainer","GET",url);assert.equal(r.statusCode,200);assert.deepEqual(r.json().questions,[]);assert.ok(!r.body.includes("SYNTHETIC-PRIVATE"));assert.ok(r.json().tests.every((t:any)=>t.builder===undefined&&t.conversions===undefined));}
+  assert.ok((await call("admin","GET","/api/bootstrap")).body.includes("SYNTHETIC-PRIVATE-KEY"));
+  const id=await submitted();const result=await call("trainer","GET",`/api/results/${id}`);assert.equal(result.statusCode,200,result.body);assert.ok(result.json().questions.some((q:any)=>q.answer==="yes"));
+});
+test("reconnect claims cannot cancel continuous server time; actual stale gaps still pause and flag",async()=>{
+  const f=await fixture(),start=(await call("s1","POST",`/api/tests/GENERAL/${f.id}/start`)).json();let a=start;
+  const before=await db.attempt.findUniqueOrThrow({where:{id:a.id}});
+  for(let i=0;i<4;i++){await db.attempt.update({where:{id:a.id},data:{lastSignalAt:new Date(Date.now()-1000)}});const r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a),resumed:true});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;}
+  let saved=await db.attempt.findUniqueOrThrow({where:{id:a.id}});assert.ok(before.remainingMs-saved.remainingMs>=4000);assert.equal(saved.interruptions,0);
+  for(let i=0;i<4;i++){const remaining=saved.remainingMs;await db.attempt.update({where:{id:a.id},data:{lastSignalAt:new Date(Date.now()-60000)}});const r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,payload(a));assert.equal(r.statusCode,200,r.body);a=r.json().attempt;saved=await db.attempt.findUniqueOrThrow({where:{id:a.id}});assert.equal(saved.remainingMs,remaining);}
+  assert.equal(saved.interruptions,4);assert.equal(saved.flagged,true);
+});
+test("inactive-skill edits and transition smuggling fail; acknowledged switching preserves both sections",async()=>{
+  const f=await fixture();let a=(await call("s1","POST",`/api/tests/GENERAL/${f.id}/start`)).json();const key=`Listening:${f.questions[0]!.id}`;
+  for(const suffix of ["heartbeat","submit"])assert.equal((await call("s1","POST",`/api/attempts/${a.id}/${suffix}`,payload(a,{"Writing:Task 1":"unsanctioned"}))).statusCode,400);
+  assert.equal((await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{"Writing:Task 1":"smuggled"}),section:2})).statusCode,400);
+  assert.equal((await db.attempt.findUniqueOrThrow({where:{id:a.id}})).sequence,0);
+  let r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{[key]:"yes"}),section:2});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;assert.equal(a.section,2);
+  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{"Writing:Task 1":"properly timed answer"}),section:2});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;assert.equal(a.answers[key],"yes");assert.equal(a.answers["Writing:Task 1"],"properly timed answer");
+  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,a.answers),section:0});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
+  const changed={...a.answers,"Writing:Task 1":"changed while Listening"};assert.equal((await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,payload(a,changed))).statusCode,400);
+});
+test("failed identifiers on one gateway cannot exhaust a different user's login bucket",async()=>{
+  await db.loginThrottle.deleteMany();
+  try{
+    for(let i=0;i<30;i++){const r=await app.inject({method:"POST",url:"/api/auth/login",remoteAddress:"10.23.0.5",headers:{origin,"x-forwarded-for":`192.0.2.${i+1}`},payload:{role:"student",identifier:`security-unknown-${i}`,password:"incorrect"}});assert.equal(r.statusCode,401);}
+    const r=await app.inject({method:"POST",url:"/api/auth/login",remoteAddress:"10.23.0.5",headers:{origin,"x-forwarded-for":"198.51.100.99"},payload:{role:"admin",identifier:"admin",password:secret}});assert.equal(r.statusCode,200,r.body);
+  }finally{await db.loginThrottle.deleteMany();}
+});
+test("account aliases and forwarding spoofing share a canonical brute-force limit",async()=>{
+  await db.loginThrottle.deleteMany();const user=await db.user.findUniqueOrThrow({where:{id:"trainer"}});
+  try{
+    for(let i=0;i<12;i++){const r=await app.inject({method:"POST",url:"/api/auth/login",remoteAddress:`192.0.2.${i+1}`,headers:{origin,"x-forwarded-for":`198.51.100.${i+1}`},payload:{role:"trainer",identifier:i%2?user.id:user.email,password:"incorrect"}});assert.equal(r.statusCode,401);}
+    const r=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"trainer",identifier:user.id,password:secret}});assert.equal(r.statusCode,429);
+  }finally{await db.loginThrottle.deleteMany();}
+});
+test("successful legacy authentication upgrades the hash without changing credentials or auth version",async()=>{
+  const id="legacy-security",salt=randomBytes(16).toString("hex"),password="Synthetic-legacy-review-password",key=scryptSync(password,salt,64,{N:32768,r:8,p:1,maxmem:64*1024*1024}).toString("hex");
+  await db.user.create({data:{id,name:"Legacy test",role:"TRAINER",passwordHash:`scrypt:32768:8:1:${salt}:${key}`}});
+  const response=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"trainer",identifier:id,password}});assert.equal(response.statusCode,200,response.body);
+  const stored=await db.user.findUniqueOrThrow({where:{id}});assert.match(stored.passwordHash,/^scrypt:32768:8:3:/);assert.equal(stored.authVersion,1);
+});
+
+async function staffChallenge(id:string,password=secret){
+  const response=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"trainer",identifier:id,password}});assert.equal(response.statusCode,200,response.body);assert.equal(response.json().mfaRequired,true);
+  const cookie=response.cookies.find(c=>c.name==="kanan_mfa")!;return {cookie:`kanan_mfa=${cookie.value}`,csrf:response.json().csrfToken,token:cookie.value};
+}
+function factor(c:{cookie:string;csrf:string},path:string,body:unknown={}){return app.inject({method:"POST",url:`/api/auth/mfa/${path}`,headers:{origin,cookie:c.cookie,"x-csrf-token":c.csrf},payload:body as any});}
+async function enrollStaff(){
+  const id=`mfa-${randomUUID()}`;await db.user.create({data:{id,name:"Synthetic MFA staff",role:"TRAINER",passwordHash:await hashPassword(secret)}});
+  const c=await staffChallenge(id);assert.equal((await app.inject({url:"/api/bootstrap",headers:{cookie:c.cookie}})).statusCode,401);
+  assert.equal((await factor(c,"complete")).statusCode,409);
+  const setup=await factor(c,"enroll");assert.equal(setup.statusCode,200,setup.body);const seed=setup.json().secret;
+  const totpCode=new TOTP({secret:Secret.fromBase32(seed)}).generate(),response=await factor(c,"verify",{code:totpCode});assert.equal(response.statusCode,200,response.body);const codes=response.json().recoveryCodes as string[];assert.equal(codes.length,10);
+  assert.equal((await app.inject({url:"/api/bootstrap",headers:{cookie:c.cookie}})).statusCode,401);
+  const complete=await factor(c,"complete");assert.equal(complete.statusCode,200,complete.body);const cookie=complete.cookies.find(c=>c.name==="kanan_session"&&c.value)!;
+  identities.set(id,{cookie:`kanan_session=${cookie.value}`,csrf:complete.json().csrfToken});return {id,c,seed,codes,totpCode,cookie:cookie.value};
+}
+test("staff enrollment grants no portal session until a code and recovery acknowledgement; secrets stay private",async()=>{
+  const subject=await enrollStaff();assert.equal((await call(subject.id,"GET","/api/bootstrap")).statusCode,200);
+  const user=await db.user.findUniqueOrThrow({where:{id:subject.id}});assert.ok(user.mfaSecret&&!user.mfaSecret.includes(subject.seed));assert.equal(user.mfaVersion,1);
+  const recovery=await db.recoveryCode.findMany({where:{userId:subject.id}});assert.equal(recovery.length,10);assert.ok(recovery.every(c=>!subject.codes.includes(c.hash)));
+  assert.equal((await factor(subject.c,"complete")).statusCode,401);
+  const pending=await staffChallenge(subject.id);assert.equal((await app.inject({method:"POST",url:"/api/auth/mfa/verify",headers:{origin,cookie:pending.cookie},payload:{code:subject.codes[0]}})).statusCode,403);
+  assert.equal((await app.inject({method:"POST",url:"/api/auth/mfa/verify",headers:{origin:"https://untrusted.audit.test",cookie:pending.cookie,"x-csrf-token":pending.csrf},payload:{code:subject.codes[0]}})).statusCode,403);
+  assert.equal((await factor(pending,"enroll")).statusCode,409);
+  const bare=await sessionFor(db,user,loadConfig({DATABASE_URL:"postgresql://unused"}));
+  assert.equal((await app.inject({url:"/api/bootstrap",headers:{cookie:`kanan_session=${bare.token}`}})).statusCode,401);
+});
+test("TOTP replay and recovery-code reuse fail across independent login challenges",async()=>{
+  const subject=await enrollStaff(),c=await staffChallenge(subject.id);
+  assert.equal((await factor(c,"verify",{code:subject.totpCode})).statusCode,401);
+  assert.equal((await factor(c,"verify",{code:subject.codes[0]})).statusCode,200);
+  const second=await staffChallenge(subject.id);assert.equal((await factor(second,"verify",{code:subject.codes[0]})).statusCode,401);
+  assert.equal((await factor(second,"verify",{code:subject.codes[1]})).statusCode,200);
+  assert.equal(await db.recoveryCode.count({where:{userId:subject.id,usedAt:{not:null}}}),2);
+});
+test("concurrent copies of one authenticator code create only one staff session",async()=>{
+  const subject=await enrollStaff(),a=await staffChallenge(subject.id),b=await staffChallenge(subject.id);
+  const code=new TOTP({secret:Secret.fromBase32(subject.seed)}).generate({timestamp:Date.now()+30000});
+  const responses=await Promise.all([factor(a,"verify",{code}),factor(b,"verify",{code})]);assert.deepEqual(responses.map(r=>r.statusCode).sort(),[200,401]);
+});
+test("expired challenges, credential reset and operator MFA recovery revoke old proof",async()=>{
+  const subject=await enrollStaff(),expired=await staffChallenge(subject.id);
+  const {digest}=await import("../src/auth.js");await db.authChallenge.update({where:{tokenHash:digest(expired.token)},data:{expiresAt:new Date(Date.now()-1)}});
+  assert.equal((await factor(expired,"verify",{code:subject.codes[0]})).statusCode,401);
+  const pending=await staffChallenge(subject.id),next="Synthetic-reset-staff-password";
+  assert.equal((await call("admin","POST",`/api/admin/users/${subject.id}/password`,{password:next})).statusCode,200);
+  assert.equal((await factor(pending,"verify",{code:subject.codes[0]})).statusCode,401);assert.equal((await call(subject.id,"GET","/api/bootstrap")).statusCode,401);
+  const reset=await staffChallenge(subject.id,next);await resetStaffMfa(db,"synthetic-operator",subject.id,"Verified synthetic staff recovery request");
+  assert.equal((await factor(reset,"verify",{code:subject.codes[1]})).statusCode,401);assert.equal(await db.recoveryCode.count({where:{userId:subject.id}}),0);
+  const login=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"trainer",identifier:subject.id,password:next}});assert.equal(login.json().enrollmentRequired,true);
+});
+test("sensitive writes require fresh password and MFA proof without changing the record first",async()=>{
+  const subject=await enrollStaff(),{digest}=await import("../src/auth.js");await db.session.update({where:{tokenHash:digest(subject.cookie)},data:{reauthUntil:new Date(Date.now()-1)}});
+  const id=await submitted(),r=await db.result.findUniqueOrThrow({where:{id}}),body={version:r.version,listening:7,reading:7,writing:6.5,remarks:"Fresh verification test",completed:true};
+  const denied=await call(subject.id,"PUT",`/api/results/${id}/evaluation`,body);assert.equal(denied.statusCode,403);assert.equal(denied.json().code,"REAUTH_REQUIRED");assert.equal((await db.result.findUniqueOrThrow({where:{id}})).version,r.version);
+  const forbidden=await call(subject.id,"POST","/api/results/release",{ids:[id]});assert.equal(forbidden.statusCode,403);assert.equal(forbidden.json().code,undefined);
+  assert.equal((await call(subject.id,"POST","/api/auth/reauth",{password:"incorrect",code:subject.codes[0]})).statusCode,401);
+  assert.equal((await call(subject.id,"POST","/api/auth/reauth",{password:secret,code:subject.codes[0]})).statusCode,200);
+  assert.equal((await call(subject.id,"PUT",`/api/results/${id}/evaluation`,body)).statusCode,200);
+  assert.equal((await call("s1","POST","/api/auth/reauth",{password:secret,code:subject.codes[1]})).statusCode,403);
+});
+test("MFA attempts are throttled across new challenges and security alerts are Admin-only",async()=>{
+  const subject=await enrollStaff();await db.loginThrottle.deleteMany({where:{key:{startsWith:`mfa-factor:${subject.id}`}}});
+  for(let i=0;i<5;i++){const c=await staffChallenge(subject.id);const r=await factor(c,"verify",{code:"invalid-recovery-code"});assert.equal(r.statusCode,401);}
+  const blocked=await staffChallenge(subject.id);assert.equal((await factor(blocked,"verify",{code:subject.codes[0]})).statusCode,429);
+  const events=await db.notification.findMany({where:{dedupeKey:{startsWith:"security/"}},include:{user:{select:{role:true}}}});assert.ok(events.length>0);assert.ok(events.every(e=>e.user.role==="ADMIN"));
+});
+test("security readiness exposes role flags only to Admin and never claims unverified cloud controls",async()=>{
+  for(const id of ["s1","trainer"])assert.equal((await call(id,"GET","/api/admin/security")).statusCode,403);
+  const response=await call("admin","GET","/api/admin/security");assert.equal(response.statusCode,200,response.body);const status=response.json();assert.equal(status.staffMfaRequired,true);assert.equal(status.mfaConfigured,true);assert.equal(status.leastPrivilegeVerified,false);assert.equal(status.backupRestoreVerified,false);assert.ok(!response.body.includes("passwordHash"));assert.ok(!response.body.includes("mfaSecret"));
 });
 
 // Synthetic parser/installation fixture, independent of private assessment files.

@@ -67,7 +67,9 @@ export async function signal(db:Db,user:Identity,id:string,body:Heartbeat,submit
     assert(a.kind!=="PRACTICE"||body.section===a.section,400,"Module practice cannot change to another skill");
     const now=new Date();
     const gap=a.lastSignalAt?Math.max(0,now.getTime()-a.lastSignalAt.getTime()):0;
-    const interrupted=gap>SIGNAL_GAP_MS||body.resumed;
+    // Client reconnect claims cannot erase a server-observed continuous interval.
+    // Only server signal staleness establishes a break in continuity.
+    const interrupted=gap>SIGNAL_GAP_MS;
     const elapsed=interrupted?0:gap;
     const sectionName=["Listening","Reading","Writing"][a.section]!;
     const remainingBySection={...a.remainingBySection as Record<string,number>};
@@ -82,7 +84,14 @@ export async function signal(db:Db,user:Identity,id:string,body:Heartbeat,submit
     const submittedSections=[...a.submittedSections];
     if(body.completeSection){assert(a.kind!=="PRACTICE",400,"Submit module practice using final submission");assert(!submittedSections.includes(sectionName),409,"This section is already submitted");submittedSections.push(sectionName);}
     const finished=submit||(!untimed&&remainingMs === 0);
+    const previous=a.answers as Record<string,string>;
+    for(const [key,value] of Object.entries(body.answers)){
+      const skill=key.split(":")[0]!;
+      if(skill!==sectionName&&(remainingBySection[skill]??0)>0)assert(value===(previous[key]??""),400,"Save the section change before editing answers in another skill");
+    }
     const accepted={...body.answers};
+    // A sparse request must never erase previously saved inactive-skill answers.
+    for(const [key,value] of Object.entries(previous))if(key.split(":")[0]!==sectionName)accepted[key]=value;
     if(hasSections)for(const key of Object.keys(accepted)){const skill=key.split(":")[0]!;if((remainingBySection[skill]??0)===0){const old=(a.answers as Record<string,string>)[key];if(old===undefined)delete accepted[key];else accepted[key]=old;}}
     if(hasSections)for(const [key,value] of Object.entries(a.answers as Record<string,string>))if((remainingBySection[key.split(":")[0]!]??0)===0)accepted[key]=value;
     if(body.completeSection){remainingBySection[sectionName]=0;await tx.attemptLog.create({data:{attemptId:id,event:`SECTION_SUBMIT:${sectionName}`,remainingMs:Object.values(remainingBySection).reduce((sum,n)=>sum+n,0),at:now}});}

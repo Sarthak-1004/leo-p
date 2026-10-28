@@ -1,13 +1,15 @@
 import { useEffect,useRef,useState,type ReactNode } from "react";
-import { PortalContext,type PreviewState,type PreviewValue,type SessionUser } from "./context";
+import { PortalContext,type PreviewState,type PreviewValue,type SessionUser,type MfaChallenge } from "./context";
 import { api,ApiError,setCsrf } from "../services/api";
 import type { Result,TestAttempt,Question } from "../types/domain";
+import {ReauthGate} from "../components/ReauthGate";
 const empty:PreviewState={students:[],trainers:[],tests:[],questions:[],results:[],progress:[],attempts:[],practiceRecords:[],notifications:[],auditEvents:[],settings:{institutionName:"Kanan IELTS Practice Portal",interruptionLimit:3,leaderboard:false}};
 export function LiveProvider({children}:{children:ReactNode}) {
   const [data,setData]=useState(empty);const [currentUser,setUser]=useState<SessionUser>();
   const [authStatus,setAuth]=useState<PreviewValue["authStatus"]>("loading");const [status,setStatus]=useState<PreviewValue["status"]>("loading");
   const [error,setError]=useState("");const [operations,setOperations]=useState(0);const alive=useRef(true);const sessionEpoch=useRef(0);
   async function refresh(){const epoch=sessionEpoch.current;const state=await api<PreviewState>("/bootstrap");if(alive.current&&epoch===sessionEpoch.current){setData(state);setStatus("ready");}}
+  async function acceptSession(session:{user:SessionUser;csrfToken:string}){setCsrf(session.csrfToken);setUser(session.user);setAuth("authenticated");if(session.user.accessActive)await refresh();else setStatus("ready");}
   useEffect(()=>{
     alive.current=true;const initialEpoch=++sessionEpoch.current;
     void api<Partial<PreviewState["settings"]>>("/institution").then(institution=>{if(alive.current)setData(old=>({...old,settings:{...old.settings,...institution}}));}).catch(()=>{});
@@ -23,7 +25,8 @@ export function LiveProvider({children}:{children:ReactNode}) {
     loadMore:async()=>{const epoch=sessionEpoch.current;setOperations(n=>n+1);try{const more=await api<PreviewState>(`/bootstrap?offset=${data.nextOffset??500}`);if(epoch!==sessionEpoch.current)return;setData(old=>{const next={...old,hasMore:more.hasMore,nextOffset:more.nextOffset};for(const key of ["students","trainers","questions","results","attempts","notifications","auditEvents"] as const){const values=new Map<string,unknown>();for(const item of [...old[key],...more[key]])values.set(item.id,item);(next[key] as unknown)= [...values.values()];}return next;});}catch(e){setError(e instanceof Error?e.message:"Records could not be loaded");}finally{setOperations(n=>n-1);}},
     course:currentUser?.course??"GENERAL",setCourse:()=>{},trainerId:currentUser?.role==="trainer"?currentUser.id:"",setTrainerId:()=>{},refresh,
     retry:()=>{setStatus("loading");void refresh().catch(e=>{setError(e.message);setStatus("error");});},
-    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await api<{user:SessionUser;csrfToken:string}>("/auth/login",{method:"POST",body:{role,identifier,password}});if(epoch!==sessionEpoch.current)return;setCsrf(session.csrfToken);setUser(session.user);setAuth("authenticated");if(session.user.accessActive)await refresh();else setStatus("ready");},
+    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await api<{user:SessionUser;csrfToken:string}|MfaChallenge>("/auth/login",{method:"POST",body:{role,identifier,password}});if(epoch!==sessionEpoch.current)return;setCsrf(session.csrfToken);if("mfaRequired" in session){setStatus("ready");return session;}await acceptSession(session);},
+    finishMfa:async code=>{const epoch=++sessionEpoch.current;const result=await api<{user:SessionUser;csrfToken:string}|{recoveryCodes:string[]}>(code===undefined?"/auth/mfa/complete":"/auth/mfa/verify",{method:"POST",body:code===undefined?{}:{code}});if(epoch!==sessionEpoch.current)return;if("recoveryCodes" in result)return result;await acceptSession(result);},
     logout:async()=>{sessionEpoch.current++;try{await api("/auth/logout",{method:"POST"});setCsrf("");setUser(undefined);setData(empty);setAuth("anonymous");setStatus("ready");}catch(e){setError(e instanceof Error?e.message:"Sign out failed. Try again");}},
     updateStudent:s=>mutation(`/admin/students/${encodeURIComponent(s.id)}`,"PUT",{id:s.id,name:s.name,course:s.course,startDate:s.startDate,expiryDate:s.expiryDate,enabled:s.enabled,trainerId:s.trainerId??null,movePending:s.movePending??false,...(s.password?{password:s.password}:{}),...(s.contacts?{contacts:s.contacts}:{})}),
     updateTrainer:t=>mutation(`/admin/trainers/${encodeURIComponent(t.id)}`,"PUT",{...t}),
@@ -36,5 +39,5 @@ export function LiveProvider({children}:{children:ReactNode}) {
     markNotificationRead:id=>mutation(`/notifications/${id}/read`,"POST"),addAudit:()=>{},addPracticeRecord:()=>{},updateAttempt:()=>{},
     startAttempt:async test=>{try{const attempt=await api<TestAttempt>(`/tests/${test.course}/${test.id}/start`,{method:"POST"});await refresh();return attempt;}catch(e){setError(e instanceof Error?e.message:"The test could not be started");return null;}},
   };
-  return <PortalContext.Provider value={value}>{children}</PortalContext.Provider>;
+  return <PortalContext.Provider value={value}>{children}<ReauthGate/></PortalContext.Provider>;
 }

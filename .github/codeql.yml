@@ -1,0 +1,14 @@
+name: Portal application security
+paths:
+  - backend/src
+  - frontend/src
+  - backend/scripts
+  - scripts
+paths-ignore:
+  - backend/src/generated
+  - backend/tests
+  - frontend/tests
+  - frontend/tests-live
+  - backend/scripts/e2e-server.ts
+  - backend/scripts/verify-backup.ts
+  - scripts/**/*.test.mjs

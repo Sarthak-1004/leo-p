@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { Db } from "./db.js";
 import { json, transaction, Prisma, retryableTransactionError } from "./db.js";
 import type { Config } from "./config.js";
-import { authenticate, active, admin, audit, digest, hashPassword, notify, sessionFor, staff, studentOnly, throttle, verifyPassword, type Authenticated } from "./auth.js";
+import { authenticate, active, admin, audit, digest, hashPassword, passwordNeedsRehash, notify, sessionFor, staff, studentOnly, throttle, verifyPassword, type Authenticated } from "./auth.js";
 import { assert, ApiError, course, defaultSettings, heartbeatSchema, identifier, password, questionSchema, settingsSchema, roundBand } from "./domain.js";
 import { bootstrap, publicQuestion, resultView, userView } from "./views.js";
 import { owned, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
@@ -20,11 +20,22 @@ import { confirmImport, csvExport, previewImport } from "./imports.js";
 import {institution,platformSettings} from "./settings.js";
 import {reports,reportQuery} from "./reports.js";
 import { Storage } from "./storage.js";
-declare module "fastify" { interface FastifyRequest { auth?:Authenticated; } }
+import {beginMfa,enrollMfa,verifyMfa,completeMfa,reauthenticate} from "./mfa.js";
+import {securityAlert} from "./security.js";
+declare module "fastify" {
+  interface FastifyRequest { auth?:Authenticated; }
+  interface FastifyContextConfig { portalApi?:boolean;publicApi?:boolean;allowInactive?:boolean; }
+}
 export async function buildApp(db:Db,config:Config) {
   const app=Fastify({logger:config.NODE_ENV!=="test"?{redact:["req.headers.cookie","req.headers.authorization","res.headers.set-cookie"]}:false,bodyLimit:1024*1024,requestTimeout:30000});
+  // Classify declared routes, never attacker-controlled raw URL spellings.
+  app.addHook("onRoute",route=>{
+    if(route.url.startsWith("/api/"))route.config={...route.config,portalApi:true,
+      publicApi:["/api/health","/api/institution"].includes(route.url)||(["/api/auth/login","/api/auth/mfa/enroll","/api/auth/mfa/verify","/api/auth/mfa/complete"].includes(route.url)&&route.method==="POST"),
+      allowInactive:["/api/auth/me","/api/auth/logout"].includes(route.url)};
+  });
   app.addHook("onSend",async(req,reply,payload)=>{
-    if(req.url.startsWith("/api/"))reply.header("Cache-Control","no-store");
+    if(req.routeOptions.config.portalApi||req.url.startsWith("/api/"))reply.header("Cache-Control","no-store");
     return payload;
   });
   await app.register(cookie);
@@ -33,37 +44,64 @@ export async function buildApp(db:Db,config:Config) {
   const storage=new Storage(config);
   app.addHook("onClose",async()=>storage.close());
   const unknownAccountHash=await hashPassword("dummy-account-timing-value");
-  const user=(req:any)=>req.auth!.user as Authenticated["user"];
+  const user=(req:any)=>{assert(req.auth,401,"Sign in to continue");return req.auth.user as Authenticated["user"];};
   app.addHook("onRequest",async req=>{
-    if(!req.url.startsWith("/api/")||["/api/health","/api/institution"].includes(req.url.split("?")[0]!)||req.url==="/api/auth/login")return;
-    req.auth=await authenticate(db,req,config,["/api/auth/me","/api/auth/logout"].includes(req.url));
+    const route=req.routeOptions.config;
+    if(!route.portalApi||route.publicApi)return;
+    req.auth=await authenticate(db,req,config,route.allowInactive);
     if(req.method!=="GET")await throttle(db,`action:${req.auth.user.id}`,300,60);
+    const path=req.routeOptions.url??"",role=req.auth.user.role;
+    const sensitive=(path.startsWith("/api/admin/")&&role==="ADMIN")||(path==="/api/results/release"&&role==="ADMIN")||(/^\/api\/results\/:id\/(evaluation|retry-ai)$/.test(path)&&role!=="STUDENT");
+    if(sensitive&&!["GET","HEAD","OPTIONS"].includes(req.method)&&!(req.auth.reauthUntil&&req.auth.reauthUntil>new Date()))throw new ApiError(403,"Confirm your password and authenticator code before continuing","REAUTH_REQUIRED");
   });
   app.setErrorHandler((error,req,reply)=>{
     if(retryableTransactionError(error))return reply.code(409).send({message:"This record changed during saving. Reload and try again"});
     if(error instanceof z.ZodError)return reply.code(400).send({message:"Check the submitted fields",issues:error.issues.map(i=>({path:i.path.join("."),message:i.message}))});
     if(error instanceof Prisma.PrismaClientKnownRequestError&&["P2002","P2025","P2034"].includes(error.code))return reply.code(409).send({message:"The record changed or this identifier is already in use. Refresh and try again"});
-    if(error instanceof ApiError)return reply.code(error.statusCode).send({message:error.message});
+    if(error instanceof ApiError)return reply.code(error.statusCode).send({message:error.message,...(error.code?{code:error.code}:{})});
     const status=(error as any).statusCode;
     if(status&&status<500)return reply.code(status).send({message:error instanceof Error?error.message:"Request failed"});
     req.log.error({err:{name:error instanceof Error?error.name:"Error",code:(error as any).code}},"Request failed");
     return reply.code(500).send({message:"The operation could not be completed. Please try again"});
   });
   app.get("/api/institution",async()=>institution(db));
-  app.get("/api/health",async()=>{await db.$queryRaw`SELECT 1`;return {status:"ok"};});
+  app.get("/api/health",async()=>{await db.$queryRaw`SELECT 1`;const revision=process.env.RENDER_GIT_COMMIT;return {status:"ok",...(revision&&/^[a-f0-9]{40}$/.test(revision)?{revision}:{} )};});
   app.post("/api/auth/login",async(req,reply)=>{
     assert(req.headers.origin===config.APP_ORIGIN,403,"Request origin is not permitted");
     const input=z.object({role:z.enum(["student","trainer","admin"]),identifier:z.string().trim().min(1).max(200),password:z.string().min(1).max(128)}).strict().parse(req.body);
-    await throttle(db,`login-ip:${req.ip}`,30,900);await throttle(db,`login-account:${digest(input.identifier.toLowerCase())}`,12,900);
     const u=await db.user.findFirst({where:{OR:[{id:input.identifier},{email:input.identifier.toLowerCase()}]},include:{student:true}});
+    // An untrusted gateway IP may represent the entire institution. Never let
+    // unrelated identifiers exhaust one low shared login bucket. Aliases of an
+    // existing account share its canonical key, including across requested roles.
+    const account=digest(u?`user:${u.id}`:`unknown:${input.identifier.toLowerCase()}`);
+    await throttle(db,`login-source:${digest(req.ip)}:${account}`,30,900);
+    await throttle(db,`login-account:${account}`,12,900);
     // Equalize unknown-account password work without logging or retaining credentials.
     const valid=await verifyPassword(input.password,u?.passwordHash??unknownAccountHash);
+    if(!(u&&valid&&u.enabled&&u.role.toLowerCase()===input.role)){
+      const failed=await throttle(db,`login-failed:${account}`,1000,900);if(failed===5)await securityAlert(db,"Repeated sign-in failures",account);
+    }
     assert(u&&valid&&u.enabled&&u.role.toLowerCase()===input.role,401,"The ID or password is incorrect");
+    // CAS prevents a concurrent Admin password reset from being overwritten.
+    if(passwordNeedsRehash(u.passwordHash))await db.user.updateMany({where:{id:u.id,passwordHash:u.passwordHash,authVersion:u.authVersion},data:{passwordHash:await hashPassword(input.password)}});
+    if(u.role!=="STUDENT"){
+      const challenge=await beginMfa(db,u,config);
+      reply.clearCookie("kanan_session",{path:"/"}).setCookie("kanan_mfa",challenge.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:300});
+      return {mfaRequired:true,enrollmentRequired:challenge.enrollmentRequired,csrfToken:challenge.csrfToken};
+    }
     const session=await sessionFor(db,u,config);
     reply.setCookie("kanan_session",session.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:config.SESSION_HOURS*3600});
     await audit(db,u.id,"Signed in",u.id);
     return {user:userView(u,config),csrfToken:session.csrfToken};
   });
+  const finishStaff=(reply:any,result:{session:{token:string;csrfToken:string};user:Authenticated["user"]})=>{
+    reply.clearCookie("kanan_mfa",{path:"/"}).setCookie("kanan_session",result.session.token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/",maxAge:config.SESSION_HOURS*3600});
+    return {user:userView(result.user,config),csrfToken:result.session.csrfToken};
+  };
+  app.post("/api/auth/mfa/enroll",async req=>{z.object({}).strict().parse(req.body??{});return enrollMfa(db,req,config);});
+  app.post("/api/auth/mfa/verify",async(req,reply)=>{const {code}=z.object({code:z.string().trim().min(6).max(40)}).strict().parse(req.body);const result=await verifyMfa(db,req,config,code);return result.session&&result.user?finishStaff(reply,{session:result.session,user:result.user}):{recoveryCodes:result.recoveryCodes};});
+  app.post("/api/auth/mfa/complete",async(req,reply)=>{z.object({}).strict().parse(req.body??{});return finishStaff(reply,await completeMfa(db,req,config));});
+  app.post("/api/auth/reauth",async req=>{const b=z.object({password:z.string().min(1).max(128),code:z.string().trim().min(6).max(40)}).strict().parse(req.body);return reauthenticate(db,req.auth!,config,b.password,b.code);});
   app.get("/api/auth/me",async req=>({user:userView(user(req),config),csrfToken:req.auth!.csrfToken}));
   app.post("/api/auth/logout",async(req,reply)=>{await db.session.deleteMany({where:{tokenHash:req.auth!.tokenHash}});reply.clearCookie("kanan_session",{path:"/"});return {ok:true};});
   app.get("/api/bootstrap",async req=>{const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(500).default(500)}).parse(req.query);return bootstrap(db,user(req),q.offset,q.limit);});
@@ -119,6 +157,11 @@ export async function buildApp(db:Db,config:Config) {
   app.get("/api/admin/operations",async req=>{
     admin(user(req));const [failedJobs,pendingJobs,flagged,unreviewed,settings]=await Promise.all([db.evaluationJob.count({where:{state:"FAILED"}}),db.evaluationJob.count({where:{state:{in:["PENDING","RUNNING"]}}}),db.attempt.count({where:{flagged:true}}),db.attempt.count({where:{flagged:true,reviewedAt:null}}),platformSettings(db)]);
     return {failedJobs,pendingJobs,flagged,unreviewed,storageConfigured:!!config.S3_BUCKET,writingConfigured:!!config.OPENAI_API_KEY&&!!config.OPENAI_MODEL,autoWritingEvaluation:settings.autoWritingEvaluation};
+  });
+  app.get("/api/admin/security",async req=>{
+    admin(user(req));const rows=await db.$queryRaw<Array<{rolsuper:boolean;rolcreatedb:boolean;rolcreaterole:boolean;owns_database:boolean;can_create_schema_objects:boolean}>>`SELECT r.rolsuper,r.rolcreatedb,r.rolcreaterole,pg_has_role(current_user,d.datdba,'MEMBER') AS owns_database,has_schema_privilege(current_user,'public','CREATE') AS can_create_schema_objects FROM pg_roles r JOIN pg_database d ON d.datname=current_database() WHERE r.rolname=current_user`;
+    const privileges=rows[0];const [staff,unenrolled,legacyPasswords]=await Promise.all([db.user.count({where:{role:{not:"STUDENT"},enabled:true}}),db.user.count({where:{role:{not:"STUDENT"},enabled:true,mfaSecret:null}}),db.user.count({where:{passwordHash:{startsWith:"scrypt:32768:8:1:"}}})]);
+    return {staffMfaRequired:true,mfaConfigured:!!config.MFA_ENCRYPTION_KEY,staff,unenrolled,legacyPasswords,runtimeDatabasePrivileges:privileges,runtimeRoleHasElevatedPrivileges:!privileges||Object.values(privileges).some(Boolean),leastPrivilegeVerified:false,backupRestoreVerified:false,storagePolicyVerified:false};
   });
   app.get("/api/admin/attempts",async req=>{
     admin(user(req));const q=z.object({page:z.coerce.number().int().min(1).default(1),course:course.optional(),studentId:z.string().max(80).optional(),filter:z.enum(["all","flagged","unreviewed","in-progress"]).default("unreviewed")}).parse(req.query);

@@ -20,3 +20,5 @@ stitch-imports/
 tmp/
 .vercel/
 .railway/
+codeql-results/
+security-results/

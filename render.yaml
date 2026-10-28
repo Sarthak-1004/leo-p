@@ -21,6 +21,10 @@ services:
         value: "10000"
       - key: ACCESS_TIMEZONE
         value: Asia/Kolkata
+      - key: MFA_ENCRYPTION_KEY
+        generateValue: true
+      - key: BACKUP_ENCRYPTION_KEY
+        generateValue: true
       - key: APP_ORIGIN
         sync: false
       - key: DATABASE_URL

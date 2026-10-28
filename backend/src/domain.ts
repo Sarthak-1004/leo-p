@@ -43,7 +43,7 @@ export function rawBand(raw: number, module: string, track: string, tables: Conv
   const name = module === "Listening" ? "Listening" : track === "GENERAL" ? "GeneralReading" : "AcademicReading";
   return tables[name]?.find(([minimum]) => raw >= minimum)?.[1] ?? null;
 }
-export class ApiError extends Error { constructor(public statusCode: number, message: string) { super(message); } }
+export class ApiError extends Error { constructor(public statusCode: number, message: string,public code?:string) { super(message); } }
 export function assert(condition: unknown, status: number, message: string): asserts condition { if (!condition) throw new ApiError(status, message); }
 export const today = (timezone: string, now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 export const answerMap = z.record(z.string().max(120), z.string().max(50000)).refine(value => Object.keys(value).length <= 200, "Too many answers");

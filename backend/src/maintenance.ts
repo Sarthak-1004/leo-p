@@ -4,6 +4,7 @@ import {platformSettings} from "./settings.js";
 import {today} from "./domain.js";
 export async function maintain(db:Db,config:Config,now=new Date()){
   await db.session.deleteMany({where:{expiresAt:{lt:now}}});
+  await db.authChallenge.deleteMany({where:{expiresAt:{lt:now}}});
   await db.loginThrottle.deleteMany({where:{resetAt:{lt:now}}});
   const settings=await platformSettings(db);
   const day=today(config.ACCESS_TIMEZONE,now);

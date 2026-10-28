@@ -1,12 +1,5 @@
-import {test,expect,type Page} from "@playwright/test";
-async function login(page:Page,role:"student"|"trainer"|"admin"){
-  await page.goto(`/${role}/login`);
-  await page.getByLabel(role==="admin"?"Admin ID":role==="trainer"?"Trainer ID or email":"Student ID",{exact:true}).fill(role);
-  await page.getByLabel("Password",{exact:true}).fill("E2e-fixture-password-only");
-  await page.getByRole("button",{name:"Sign in",exact:true}).click();
-  await expect(page).toHaveURL(new RegExp(`/${role}/dashboard$`));
-  await expect(page.locator("#main-content h1")).toBeVisible();
-}
+import {test,expect} from "@playwright/test";
+import {login} from "./auth";
 test("real login protects role routes and retains the session after reload",async({page})=>{
   await page.goto("/admin/dashboard");await expect(page).toHaveURL(/\/admin\/login$/);
   await login(page,"admin");await page.reload();await expect(page.getByRole("heading",{name:"Operations & academic dashboard"})).toBeVisible();
@@ -112,4 +105,28 @@ test("a late anonymous session response cannot undo a successful sign-in",async(
  await page.route("**/api/auth/me",route=>{initial=route;},{times:1});
  await login(page,"student");expect(initial).toBeDefined();await initial!.fulfill({status:401,contentType:"application/json",body:JSON.stringify({message:"No initial session"})});
  await expect(page).toHaveURL(/student\/dashboard$/);await expect(page.locator("#main-content h1")).toBeVisible();await page.reload();await expect(page.locator("#main-content h1")).toBeVisible();await expect(page).toHaveURL(/student\/dashboard$/);
+});
+
+test("section changes wait for acknowledgement and remain locked through a lost response",async({page})=>{
+  await login(page,"student");await page.goto("/student/practice-mocks");
+  await expect(page.getByRole("heading",{name:"Practice Mock 01",exact:true})).toBeVisible();
+  const resume=page.getByRole("link",{name:"Resume test",exact:true});
+  if(await resume.count())await resume.click();
+  else{await page.getByRole("link",{name:"Start test",exact:true}).click();await page.getByRole("checkbox").check();await page.getByRole("button",{name:"Start test",exact:true}).click();}
+  await expect(page.getByRole("heading",{name:"Practice Mock Test 01",exact:true})).toBeVisible();
+  let release:()=>void=()=>{},intercepted=false;
+  await page.route("**/api/attempts/*/heartbeat",async route=>{
+    if(!intercepted&&route.request().postDataJSON().section===2){await route.fetch();intercepted=true;await new Promise<void>(resolve=>{release=resolve;});await route.abort("failed");return;}
+    await route.continue();
+  });
+  try{
+    await page.getByRole("button",{name:"Writing",exact:true}).click();await expect.poll(()=>intercepted).toBe(true);
+    await expect(page.getByRole("textbox",{name:"Task 1 response",exact:true})).toHaveCount(0);await expect(page.getByRole("radio",{name:"yes",exact:true}).first()).toBeDisabled();
+    release();await expect(page.getByText("Not saved. Your current answers are still on this page.",{exact:true})).toBeVisible();
+    await expect(page.getByRole("radio",{name:"yes",exact:true}).first()).toBeDisabled();await page.getByRole("button",{name:"Retry save",exact:true}).click();
+    await expect(page.getByRole("textbox",{name:"Task 1 response",exact:true})).toBeEnabled();
+    await page.getByRole("textbox",{name:"Task 1 response",exact:true}).fill("The server has acknowledged Writing before accepting this response.");
+    await page.getByRole("button",{name:"Save answers",exact:true}).click();await expect(page.getByText("Saved on server",{exact:true})).toBeVisible();
+    await page.reload();await expect(page.getByRole("textbox",{name:"Task 1 response",exact:true})).toHaveValue("The server has acknowledged Writing before accepting this response.");
+  }finally{release();}
 });
