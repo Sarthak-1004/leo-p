@@ -28,7 +28,7 @@ function StudentForm({
   student?: Student;
   onClose: () => void;
 }) {
-  const { students, updateStudent, trainers, mode, settings } = usePreview();
+  const { students, updateStudent, trainers, mode, settings, pending, error: saveError, clearError } = usePreview();
   const start=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   const expiry=new Date(`${start}T00:00:00Z`);expiry.setUTCDate(expiry.getUTCDate()+(settings.defaultAccessDays??180)-1);
   const [draft, setDraft] = useState<Student>(
@@ -43,6 +43,7 @@ function StudentForm({
   );
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   function change<K extends keyof Student>(key: K, value: Student[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
   }
@@ -63,6 +64,8 @@ function StudentForm({
           className="stack"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (pending) return;
+            setError(""); clearError(); setAttempted(true);
             if (draft.expiryDate < draft.startDate) {
               setError("Expiry must be on or after the start date.");
               return;
@@ -87,7 +90,8 @@ function StudentForm({
           <Notice>
             {mode === "demo" ? "Changes affect the preview only and reset on reload." : "Account access and credentials are controlled by Admin."}
           </Notice>
-          {mode === "live" && !student && <label className="field">Initial password<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={draft.password ?? ""} onChange={e => change("password", e.target.value)} /></label>}
+          {mode === "live" && !student && <label className="field">Initial password<input type="password" required minLength={12} maxLength={128} aria-describedby="initial-password-help" autoComplete="new-password" value={draft.password ?? ""} onChange={e => change("password", e.target.value)} /></label>}
+          {mode === "live" && !student && <p id="initial-password-help" className="muted text-xs">Use 12-128 characters with at least 6 different characters. Avoid common passwords and repeated or sequential patterns.</p>}
           {mode === "live" && <div className="form-grid">{(["phone","email","address","guardianContact"] as const).map(key => <label className="field" key={key}>{({phone:"Phone",email:"Contact email",address:"Postal address",guardianContact:"Guardian contact"})[key]}<input value={draft.contacts?.[key] ?? ""} onChange={e => change("contacts", {phone:"",email:"",address:"",guardianContact:"",...draft.contacts,[key]:e.target.value})} /></label>)}</div>}
           <div className="form-grid">
             <label className="field">
@@ -149,12 +153,12 @@ function StudentForm({
             </label>
           </div>
           {mode === "live" && student && <label className="row text-sm"><input type="checkbox" checked={draft.movePending??false} onChange={e=>change("movePending",e.target.checked)}/>Move pending evaluations to the selected trainer</label>}
-          {error && (
+          {(error || (attempted && saveError)) && (
             <p role="alert" className="error-text">
-              {error}
+              {error || saveError}
             </p>
           )}
-          <Button type="submit">{mode === "demo" ? "Apply to preview" : "Save student"}</Button>
+          <Button type="submit" disabled={pending}>{pending ? "Saving…" : mode === "demo" ? "Apply to preview" : "Save student"}</Button>
         </form>
       )}
     </Modal>
