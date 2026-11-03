@@ -50,6 +50,8 @@ The sidebar must be collapsible. Expanded navigation shows **icon + label**. Col
 
 The active page remains identifiable in both states. Provide tooltips where appropriate, persistent accessible names, and a clearly named expand/collapse control with its current state. Keep focus and navigation usable during transitions.
 
+Related pages may sit in collapsible groups (Student: Tests; Admin: People, Content, Results, System). An expanded group shows its child pages indented under a guide line, with optional muted counts in parentheses taken from loaded data. Group toggles expose `aria-expanded`. A collapsed group whose current page is hidden highlights its header. The collapsed desktop rail flattens groups so every page icon stays visible. Shortened visible labels inside groups keep the full page name as the accessible name and tooltip.
+
 ### Tablet
 
 Use compact/collapsed navigation appropriate to available space. Preserve icons, active-page indication, and accessible labels. Choose transitions after inspecting Stitch and testing actual content widths.

@@ -480,3 +480,26 @@ function syntheticPracticePack() {
   return {id:"original-practice-v1",version:1,authorship:"Synthetic automated test fixture",status:"draft",questions,
     listeningScripts:[{id:"fixture-script",questionIds:questions.slice(32).map(q=>q.id),text:"Synthetic script for parser validation.",audioStatus:"not recorded"}]};
 }
+test("test questions stay out of module practice, which reveals answer keys",async()=>{
+  const id=`separation-${randomUUID().slice(0,8)}`;
+  const saved=await call("admin","PUT",`/api/admin/questions/${id}`,{id,skill:"Reading",course:"GENERAL",questionType:"Matching",section:"Passage 1",difficulty:"Medium",title:"t",prompt:"p",passage:"x",options:[],answer:"k",published:true});
+  assert.equal(saved.statusCode,200,saved.body);assert.equal(saved.json().practiceEligible,false);
+  const f=await fixture();const test=await db.test.findUniqueOrThrow({where:{course_id:{course:"GENERAL",id:f.id}}});
+  const enable=await call("admin","PUT",`/api/admin/questions/${f.questions[40]!.id}`,{...f.questions[40],options:["yes","no"],answer:"yes",difficulty:"Medium",passage:"P",version:f.questions[40]!.version,practiceEligible:true,explanation:undefined,updatedAt:undefined});
+  assert.equal(enable.statusCode,400,enable.body);assert.match(enable.json().message,/used in GENERAL\//);
+  await db.question.update({where:{id:f.questions[0]!.id},data:{practiceEligible:true}});
+  const builder=test.builder as any;
+  const rejected=await call("admin","PUT",`/api/admin/tests/GENERAL/${f.id}`,{id:f.id,course:"GENERAL",kind:"PRACTICE_MOCK",number:test.number,published:false,available:false,duration:150,builder,version:test.version});
+  assert.equal(rejected.statusCode,400,rejected.body);assert.match(rejected.json().message,/module practice/);
+  for(const statement of readFileSync("prisma/migrations/202611030009_test_practice_separation/migration.sql","utf8").split(/;\s*\n/).filter(s=>s.replace(/--.*$/gm,"").trim()))await db.$executeRawUnsafe(statement);
+  assert.equal((await db.question.findUniqueOrThrow({where:{id:f.questions[0]!.id}})).practiceEligible,false);
+});
+test("Admin question search filters by skill, course, section and text, and resolves selected IDs",async()=>{
+  const f=await fixture();
+  assert.equal((await call("trainer","GET","/api/admin/questions?skill=Listening")).statusCode,403);
+  const found=await call("admin","GET",`/api/admin/questions?skill=Reading&course=GENERAL&search=${f.id}-Reading-1&section=Part%201`);assert.equal(found.statusCode,200,found.body);
+  const body=found.json();assert.ok(body.rows.length>=1&&body.rows.every((q:any)=>q.skill==="Reading"&&q.id.includes(`${f.id}-Reading-1`)));
+  assert.ok(body.sections.includes("Part 1"));assert.ok(!("answer" in body.rows[0])&&!("passage" in body.rows[0]));
+  const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
+  const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
+});

@@ -1,10 +1,11 @@
 import {Pagination} from "../../components/Pagination";
 import {usePagination} from "../../utils/usePagination";
 import { ConversionEditor } from "../../components/ConversionEditor";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePreview } from "../../app/PreviewContext";
-import type { BuilderDraft, Course, Skill } from "../../types/domain";
+import type { BuilderDraft, Course, MockTest, Question, Skill } from "../../types/domain";
+import { QUESTION_PAGE_SIZE, useQuestionDetails, useQuestionSearch, type QuestionSearch } from "../../utils/useQuestionSearch";
 const skills: Skill[] = ["Listening", "Reading", "Writing"];
 import {
   Badge,
@@ -180,22 +181,46 @@ export function AdminMocks() {
     </ContentContainer>
   );
 }
+type OnlineSkill = "Listening" | "Reading" | "Writing";
+const required: Record<OnlineSkill, number> = { Listening: 40, Reading: 40, Writing: 2 };
+// Mirrors the server's per-section duration limits.
+const maxMinutes: Record<OnlineSkill, number> = { Listening: 90, Reading: 120, Writing: 120 };
+const conversionNames = ["Listening", "AcademicReading", "GeneralReading"];
+const emptyBuilder = (): BuilderDraft => ({
+  questionIds: { Listening: [], Reading: [], Writing: [], Speaking: [] },
+  duration: { Listening: 30, Reading: 60, Writing: 60, Speaking: 0 },
+});
+const structure = (b: BuilderDraft) => JSON.stringify(skills.map((s) => [b.questionIds[s] ?? [], b.duration[s]]));
+const testName = (t: MockTest) => `${t.kind === "FLT" ? "FLT" : "Practice Mock"} ${String(t.number).padStart(2, "0")}`;
+const bySection = (a?: string, b?: string) => (a ?? "").localeCompare(b ?? "", undefined, { numeric: true });
 export function MockBuilder() {
   const { courseId, testId } = useParams();
-  const { tests, questions, updateTest, mode } = usePreview();
+  const { tests, updateTest, mode, pending } = usePreview();
   const test = tests.find((t) => t.course === courseId && t.id === testId);
-  const [skill, setSkill] = useState<Skill>("Writing");
-  const [draft, setDraft] = useState<BuilderDraft>(test?.builder ?? {
-    questionIds: {
-      Listening: ["L01"],
-      Reading: courseId === "GENERAL" ? ["R01"] : ["R03"],
-      Writing: courseId === "GENERAL" ? ["W01", "W03"] : ["W02", "W03"],
-      Speaking: [],
-    },
-    duration: { Listening: 30, Reading: 60, Writing: 60, Speaking: 0 },
-  });
+  const [skill, setSkill] = useState<OnlineSkill>("Listening");
+  const [draft, setDraft] = useState<BuilderDraft>(() => structuredClone(test?.builder ?? emptyBuilder()));
+  const [filters, setFilters] = useState<Omit<QuestionSearch, "skill" | "course">>({ search: "", section: "", questionType: "", status: "published", page: 1 });
   const [preview, setPreview] = useState(false);
   const [message, setMessage] = useState("");
+  const results = useQuestionSearch({ skill, course: test?.course ?? "GENERAL", ...filters });
+  const allSelected = skills.flatMap((s) => draft.questionIds[s]);
+  const { known } = useQuestionDetails(allSelected);
+  const dirty = !!test && structure(draft) !== structure(test.builder ?? emptyBuilder());
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  // Other tests that already use each question, so reuse is a visible choice.
+  const usage = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const t of tests) {
+      if (t.course === courseId && t.id === testId) continue;
+      for (const id of Object.values(t.builder?.questionIds ?? {}).flat()) map.set(id, [...(map.get(id) ?? []), `${testName(t)} ${courseName(t.course)}`]);
+    }
+    return map;
+  }, [tests, courseId, testId]);
   if (!test)
     return (
       <ContentContainer>
@@ -205,32 +230,55 @@ export function MockBuilder() {
         />
       </ContentContainer>
     );
-  const eligible = questions.filter(
-    (q) =>
-      q.skill === skill && q.published && (q.course === "BOTH" || q.course === test.course),
-  );
+  const info = (id: string): Question | undefined => results.rows.find((q) => q.id === id) ?? known[id];
   const selected = draft.questionIds[skill];
-  function toggle(id: string) {
-    setDraft((prev) => ({
-      ...prev,
-      questionIds: {
-        ...prev.questionIds,
-        [skill]: selected.includes(id)
-          ? selected.filter((q) => q !== id)
-          : [...selected, id],
-      },
-    }));
+  const remaining = required[skill] - selected.length;
+  const total = skills.reduce((sum, s) => sum + draft.duration[s], 0);
+  const blocked = (q: Question) =>
+    q.practiceEligible ? "In module practice" : q.archived ? "Archived" : skill === "Writing" && selected.some((id) => id !== q.id && info(id)?.section === q.section) ? `${q.section} already selected` : "";
+  const addable = results.rows.filter((q) => !selected.includes(q.id) && !blocked(q));
+  function setSelected(next: string[]) {
+    setDraft((prev) => ({ ...prev, questionIds: { ...prev.questionIds, [skill]: next } }));
+    setMessage("");
   }
-  function move(index: number, direction: number) {
+  function toggle(q: Question) {
+    if (selected.includes(q.id)) setSelected(selected.filter((id) => id !== q.id));
+    else if (remaining > 0 && !blocked(q)) setSelected([...selected, q.id]);
+  }
+  function addShown() {
     const next = [...selected];
-    [next[index], next[index + direction]] = [
-      next[index + direction],
-      next[index],
-    ];
-    setDraft((prev) => ({
-      ...prev,
-      questionIds: { ...prev.questionIds, [skill]: next },
-    }));
+    for (const q of addable) {
+      if (next.length >= required[skill]) break;
+      if (skill === "Writing" && next.some((id) => info(id)?.section === q.section)) continue;
+      next.push(q.id);
+    }
+    setSelected(next);
+  }
+  function moveTo(from: number, to: number) {
+    const next = [...selected];
+    const [id] = next.splice(from, 1);
+    next.splice(Math.max(0, Math.min(next.length, to)), 0, id!);
+    setSelected(next);
+  }
+  function setFilter<K extends keyof typeof filters>(key: K, value: (typeof filters)[K]) {
+    setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
+  }
+  const selectedInfo = allSelected.map(info);
+  const loaded = selectedInfo.every(Boolean);
+  const writingSections = draft.questionIds.Writing.map((id) => info(id)?.section);
+  const checks = [
+    { label: "Listening has 40 questions", ok: draft.questionIds.Listening.length === 40 },
+    { label: "Reading has 40 questions", ok: draft.questionIds.Reading.length === 40 },
+    { label: "Writing has Task 1 and Task 2", ok: writingSections.includes("Task 1") && writingSections.includes("Task 2") },
+    { label: "Every question is published", ok: loaded && selectedInfo.every((q) => q!.published && !q!.archived) },
+    { label: "No question is in module practice", ok: loaded && selectedInfo.every((q) => !q!.practiceEligible) },
+    ...(mode === "live" ? [{ label: "Band conversion tables reach raw score 0", ok: conversionNames.every((n) => test.conversions?.[n]?.at(-1)?.[0] === 0) }] : []),
+  ];
+  const ready = checks.every((c) => c.ok);
+  async function save(published = test!.published) {
+    const saved = await updateTest({ ...test!, builder: draft, duration: total, published });
+    if (saved !== false)
+      setMessage(mode === "demo" ? "Applied to this preview. Changes reset on reload." : published !== test!.published ? "Structure and publication saved." : "Test structure saved.");
   }
   return (
     <ContentContainer>
@@ -240,9 +288,8 @@ export function MockBuilder() {
         description={courseName(test.course)}
         actions={
           <>
-            <Badge tone={test.published ? "green" : "amber"}>
-              {test.published ? "Published" : "Draft"}
-            </Badge>
+            <Badge tone={test.published ? "green" : "amber"}>{test.published ? "Published" : "Draft"}</Badge>
+            {dirty && <Badge tone="amber">Unsaved changes</Badge>}
             <Button variant="secondary" onClick={() => setPreview(true)}>
               Preview test
             </Button>
@@ -250,130 +297,205 @@ export function MockBuilder() {
         }
       />
       <Notice>
-        {mode === "demo" ? "Builder edits are temporary." : "Save the test structure to apply edits."} Only Listening, Reading and Writing are delivered online. FLT Speaking is assessed offline.
+        Only Listening, Reading and Writing are delivered online. FLT Speaking is assessed offline. Questions in module practice cannot be used in tests because practice shows answer keys.
       </Notice>
-      <Tabs
-        options={skills}
-        value={skill}
-        onChange={setSkill}
-        label="Builder sections"
-      />
+      <div className="builder-progress" role="group" aria-label="Builder sections">
+        {skills.map((s) => {
+          const count = draft.questionIds[s].length;
+          return (
+            <button
+              type="button"
+              key={s}
+              className={`builder-progress-item ${s === skill ? "active" : ""}`}
+              aria-pressed={s === skill}
+              onClick={() => {
+                setSkill(s as OnlineSkill);
+                setFilters((prev) => ({ ...prev, section: "", questionType: "", page: 1 }));
+              }}
+            >
+              <span>{s}</span>
+              <strong>
+                {count}/{required[s as OnlineSkill]}
+                {count === required[s as OnlineSkill] && <Icon name="check" size={14} />}
+              </strong>
+            </button>
+          );
+        })}
+      </div>
       <div className="two-column">
         <div className="stack">
           <Card>
-            <SectionTitle title={`${skill} question selection`} />
-            {eligible.map((q) => (
-              <label className="answer-option" key={q.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(q.id)}
-                  onChange={() => toggle(q.id)}
-                />
-                <span>
-                  <strong className="block">{q.title}</strong>
-                  <span className="muted">{q.prompt}</span>
-                </span>
+            <SectionTitle
+              title={`Add ${skill} questions`}
+              detail={<Badge tone={remaining ? "blue" : "green"}>{remaining ? `${remaining} to add` : "Section full"}</Badge>}
+            />
+            <div className="builder-filters">
+              <label className="field">
+                Search
+                <input type="search" placeholder="ID, title or prompt" value={filters.search} onChange={(e) => setFilter("search", e.target.value)} />
               </label>
-            ))}
-            {!eligible.length && <EmptyState title="No eligible questions" />}
-          </Card>
-          <Card>
-            <SectionTitle title="Question order" />
-            <div className="stack">
-              {selected.map((id, i) => (
-                <div className="builder-question" key={id}>
-                  <span className="text-sm">
-                    {i + 1}. {questions.find((q) => q.id === id)?.title || id}
-                  </span>
-                  <div className="actions">
-                    <button
-                      className="icon-button"
-                      aria-label={`Move ${id} up`}
-                      disabled={i === 0}
-                      onClick={() => move(i, -1)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="icon-button"
-                      aria-label={`Move ${id} down`}
-                      disabled={i === selected.length - 1}
-                      onClick={() => move(i, 1)}
-                    >
-                      ↓
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!selected.length && (
-                <p className="muted text-sm">
-                  Select questions above to build this section.
-                </p>
+              <label className="field">
+                Part / section
+                <select value={filters.section} onChange={(e) => setFilter("section", e.target.value)}>
+                  <option value="">All</option>
+                  {results.sections.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                Question type
+                <select value={filters.questionType} onChange={(e) => setFilter("questionType", e.target.value)}>
+                  <option value="">All</option>
+                  {results.questionTypes.map((t) => <option key={t}>{t}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                Status
+                <select value={filters.status} onChange={(e) => setFilter("status", e.target.value as "published" | "all")}>
+                  <option value="published">Published</option>
+                  <option value="all">All, incl. drafts</option>
+                </select>
+              </label>
+            </div>
+            <div className="actions justify-between mt-4">
+              <span className="muted text-xs" role="status">{results.loading ? "Searching..." : `${results.count} matching questions`}</span>
+              <Button variant="secondary" disabled={!remaining || !addable.length} onClick={addShown}>
+                <Icon name="plus" size={16} />
+                Add {Math.min(addable.length, remaining)} shown
+              </Button>
+            </div>
+            {results.error && <p role="alert" className="error-text mt-4">{results.error}</p>}
+            <div className="builder-results">
+              {results.rows.map((q) => {
+                const position = selected.indexOf(q.id);
+                const reason = blocked(q);
+                const used = usage.get(q.id);
+                return (
+                  <label className="answer-option builder-result" key={q.id}>
+                    <input type="checkbox" checked={position >= 0} disabled={position < 0 && (!remaining || !!reason)} onChange={() => toggle(q)} />
+                    <span className="builder-result-body">
+                      <strong>{q.title}</strong>
+                      <span className="muted text-xs">{[q.id, q.section, q.questionType].filter(Boolean).join(" · ")}</span>
+                      <span className="muted text-xs builder-prompt">{q.prompt}</span>
+                      <span className="row">
+                        {position >= 0 && <Badge tone="green">#{position + 1}</Badge>}
+                        {!q.published && <Badge tone="gray">Draft</Badge>}
+                        {reason && <Badge tone="red">{reason}</Badge>}
+                        {used && <Badge tone="amber">Also in {used.slice(0, 2).join(", ")}{used.length > 2 ? ` +${used.length - 2}` : ""}</Badge>}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+              {!results.loading && !results.rows.length && (
+                <EmptyState compact title="No matching questions" description="Adjust the filters or add questions in the Question Bank." />
               )}
             </div>
+            {results.count > QUESTION_PAGE_SIZE && (
+              <Pagination page={filters.page} pages={Math.ceil(results.count / QUESTION_PAGE_SIZE)} setPage={(page) => setFilters((prev) => ({ ...prev, page }))} count={results.count} />
+            )}
+          </Card>
+          <Card>
+            <SectionTitle
+              title={`${skill} order`}
+              detail={
+                <div className="actions">
+                  <Button variant="secondary" disabled={selected.length < 2} onClick={() => setSelected([...selected].sort((a, b) => bySection(info(a)?.section, info(b)?.section)))}>
+                    Sort by part
+                  </Button>
+                  <Button variant="ghost" disabled={!selected.length} onClick={() => { if (window.confirm(`Remove all ${skill} questions from this test?`)) setSelected([]); }}>
+                    Clear
+                  </Button>
+                </div>
+              }
+            />
+            <ol className="stack builder-order">
+              {selected.map((id, i) => {
+                const q = info(id);
+                const name = q?.title ?? id;
+                const commit = (input: HTMLInputElement) => {
+                  const to = Number(input.value);
+                  if (Number.isInteger(to) && to >= 1 && to <= selected.length && to !== i + 1) moveTo(i, to - 1);
+                  else input.value = String(i + 1);
+                };
+                return (
+                  <li className="builder-question" key={id}>
+                    <input
+                      key={`${id}-${i}`}
+                      className="control builder-position"
+                      type="number"
+                      min={1}
+                      max={selected.length}
+                      defaultValue={i + 1}
+                      aria-label={`Position of ${name}`}
+                      onBlur={(e) => commit(e.currentTarget)}
+                      onKeyDown={(e) => { if (e.key === "Enter") commit(e.currentTarget); }}
+                    />
+                    <span className="builder-question-title">
+                      <strong className="text-sm">{name}</strong>
+                      <small className="muted">{q ? [q.section, q.questionType].filter(Boolean).join(" · ") : id}</small>
+                    </span>
+                    <div className="actions">
+                      <button className="icon-button" aria-label={`Move ${name} up`} disabled={i === 0} onClick={() => moveTo(i, i - 1)}>↑</button>
+                      <button className="icon-button" aria-label={`Move ${name} down`} disabled={i === selected.length - 1} onClick={() => moveTo(i, i + 1)}>↓</button>
+                      <button className="icon-button" aria-label={`Remove ${name}`} onClick={() => setSelected(selected.filter((x) => x !== id))}>
+                        <Icon name="close" size={16} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            {!selected.length && <p className="muted text-sm">Add questions above to build this section.</p>}
           </Card>
         </div>
         <Card>
           <SectionTitle title="Test overview" />
           <label className="field">
-            {skill} duration (minutes)
+            {skill} duration (minutes, up to {maxMinutes[skill]})
             <input
               type="number"
               min={1}
-              max={180}
+              max={maxMinutes[skill]}
               value={draft.duration[skill]}
               onChange={(e) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  duration: {
-                    ...prev.duration,
-                    [skill]: Math.max(
-                      1,
-                      Math.min(180, Number(e.target.value) || 1),
-                    ),
-                  },
-                }))
+                setDraft((prev) => ({ ...prev, duration: { ...prev.duration, [skill]: Math.max(1, Math.min(maxMinutes[skill], Number(e.target.value) || 1)) } }))
               }
             />
           </label>
           <div className="list-row">
             <span>Total duration</span>
-            <strong>
-              {Object.values(draft.duration).reduce((a, b) => a + b, 0)} min
-            </strong>
+            <strong>{total} min</strong>
           </div>
           <div className="list-row">
             <span>Selected questions</span>
-            <strong>{Object.values(draft.questionIds).flat().length}</strong>
+            <strong>{allSelected.length} / 82</strong>
+          </div>
+          <h3 className="mt-5">Ready to publish</h3>
+          <ul className="readiness" aria-label="Publication checklist">
+            {checks.map((c) => (
+              <li key={c.label} className={c.ok ? "ok" : "missing"}>
+                <Icon name={c.ok ? "check" : "close"} size={16} />
+                <span>{c.label}</span>
+                <span className="sr-only">{c.ok ? "complete" : "incomplete"}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-5">
+            <Button disabled={!dirty || pending} onClick={() => void save()}>
+              <Icon name="check" size={16} />
+              Save structure
+            </Button>
           </div>
           <label className="field mt-5">
             Publication
-            <select
-              value={test.published ? "published" : "draft"}
-              onChange={async (e) => {
-                const saved=await updateTest({
-                  ...test,builder:draft,duration:Object.values(draft.duration).reduce((a,b)=>a+b,0),
-                  published: e.target.value === "published",
-                });
-                if(saved!==false)setMessage(mode === "demo" ? "Publication changed in preview only." : "Structure and publication saved.");
-              }}
-            >
+            <select value={test.published ? "published" : "draft"} disabled={pending} onChange={(e) => void save(e.target.value === "published")}>
               <option value="draft">Draft</option>
-              <option value="published">Published</option>
+              <option value="published" disabled={!ready && !test.published}>
+                Published{!ready && !test.published ? " (complete the checklist)" : ""}
+              </option>
             </select>
           </label>
-          <p className="muted text-xs mt-4">
-            Availability is managed for the whole course in Mock Test
-            Management.
-          </p>
-          <div className="mt-5">
-            <Button
-              onClick={async () => { if ((await updateTest({ ...test, builder: draft, duration: Object.values(draft.duration).reduce((a, b) => a + b, 0) })) !== false) setMessage(mode === "demo" ? "Draft applied to this preview. Changes reset on reload." : "Test structure saved."); }}
-            >
-              <Icon name="check" size={16} />
-              Apply draft
-            </Button>
-          </div>
+          <p className="muted text-xs mt-4">Changing publication also saves the structure. Availability is managed for the whole course in Test Management.</p>
           {message && (
             <p role="status" className="text-xs mt-4">
               {message}
@@ -382,9 +504,13 @@ export function MockBuilder() {
         </Card>
       </div>
       {mode === "live" && <ConversionEditor key={`${test.id}-${test.version}`} test={test} />}
-      <LinkButton secondary to="/admin/mock-tests">
+      <Link
+        className="btn btn-secondary"
+        to="/admin/mock-tests"
+        onClick={(e) => { if (dirty && !window.confirm("Leave the builder? Unsaved structure changes will be lost.")) e.preventDefault(); }}
+      >
         Back to mock management
-      </LinkButton>
+      </Link>
       {preview && (
         <Modal title="Test structure preview" onClose={() => setPreview(false)}>
           <div className="stack">
@@ -395,17 +521,13 @@ export function MockBuilder() {
                 </h3>
                 <ol className="list-decimal pl-5 mt-3 text-sm muted">
                   {draft.questionIds[s].map((id) => (
-                    <li key={id}>
-                      {questions.find((q) => q.id === id)?.title || id}
-                    </li>
+                    <li key={id}>{info(id)?.title || id}</li>
                   ))}
                 </ol>
-                {!draft.questionIds[s].length && (
-                  <p className="muted text-xs">No questions selected</p>
-                )}
+                {!draft.questionIds[s].length && <p className="muted text-xs">No questions selected</p>}
               </section>
             ))}
-            <Notice>Unsaved structure preview. Saving applies these changes to the test.</Notice>
+            <Notice>{dirty ? "Includes unsaved changes. Save the structure to apply them." : "Matches the saved structure."}</Notice>
           </div>
         </Modal>
       )}

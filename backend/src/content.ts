@@ -18,6 +18,8 @@ export async function saveQuestion(db:Db,user:Identity,body:z.infer<typeof quest
     if(input.skill!=="Listening")assert(assets.every(a=>a.contentType.startsWith("image/")),400,"Use images for Reading, Writing and offline Speaking material");
     if(input.published&&input.skill==="Listening")assert(assets.some(a=>a.contentType.startsWith("audio/")),400,"Attach Listening audio before publication");
     assert(!(input.published&&input.archived),400,"Restore the archived question before publication");
+    // Module practice reveals answer keys, so test questions never join the practice pool.
+    if(input.practiceEligible){const tests=await tx.test.findMany({select:{course:true,id:true,builder:true}});const used=tests.find(t=>Object.values((t.builder as any)?.questionIds??{}).flat().includes(body.id));assert(!used,400,`This question is used in ${used?.course}/${used?.id}. Questions in tests cannot be used in module practice`);}
     const q=await tx.question.upsert({where:{id:body.id},create:{...input,options:json(input.options),answer:json(input.answer)},update:{...input,options:json(input.options),answer:json(input.answer),version:{increment:1}}});
     await audit(tx,user.id,"Question saved",q.id,{version:q.version,published:q.published,archived:q.archived});
     return q;
@@ -40,6 +42,7 @@ export async function saveTestRecord(tx:Db|Tx,user:Identity,input:z.infer<typeof
     for(const s of ["Listening","Reading","Writing"] as const) for(const id of input.builder.questionIds[s]) {
       const q=qs.find(q=>q.id===id)!;
       assert(q.skill===s&&(q.course===input.course||q.course==="BOTH")&&!q.archived,400,"Selected question is not eligible for this section/course");
+      assert(!q.practiceEligible,400,`${q.id} is in module practice, which shows answer keys. Turn off module practice for it before adding it to a test`);
       if(input.published) assert(q.published,400,"Publish selected questions before publishing this test");
     }
     if(input.published) {

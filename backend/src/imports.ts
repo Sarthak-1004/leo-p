@@ -54,7 +54,7 @@ async function validate(tx:Db|Tx,kind:string,rows:Row[],user:Identity) {
         assert(rows.filter(r=>r.data.id===input.id&&r.data.course===input.course).length===1,400,"Duplicate test identifier");
         await saveTestRecord(tx,user,input,true);
       } else {
-        const q=questionSchema.parse({...row.data,options:JSON.parse(row.data.options??"[]"),answer:JSON.parse(row.data.answer??'""'),assetIds:JSON.parse(row.data.assetIds??"[]"),published:false,archived:false,practiceEligible:row.data.practiceEligible!=="false",version:undefined});
+        const q=questionSchema.parse({...row.data,options:JSON.parse(row.data.options??"[]"),answer:JSON.parse(row.data.answer??'""'),assetIds:JSON.parse(row.data.assetIds??"[]"),published:false,archived:false,practiceEligible:row.data.practiceEligible==="true",version:undefined});
         assert(await tx.asset.count({where:{id:{in:q.assetIds}}})===q.assetIds.length,400,"An asset ID does not exist");
         assert(!await tx.question.findUnique({where:{id:q.id}}),400,"Question ID already exists");
         assert(rows.filter(r=>r.data.id===q.id).length===1,400,"Duplicate Question ID");
@@ -90,7 +90,7 @@ export async function confirmImport(db:Db,user:Identity,id:string) {
       } else if(batch.kind === "tests") {
         await saveTestRecord(tx,user,testInput(row.data));
       } else {
-        const input=questionSchema.parse({...row.data,options:JSON.parse(row.data.options??"[]"),answer:JSON.parse(row.data.answer??'""'),assetIds:JSON.parse(row.data.assetIds??"[]"),published:false,archived:false,practiceEligible:row.data.practiceEligible!=="false",version:undefined});
+        const input=questionSchema.parse({...row.data,options:JSON.parse(row.data.options??"[]"),answer:JSON.parse(row.data.answer??'""'),assetIds:JSON.parse(row.data.assetIds??"[]"),published:false,archived:false,practiceEligible:row.data.practiceEligible==="true",version:undefined});
         const {version,...q}=input;await tx.question.create({data:{...q,answer:json(q.answer)}});
       }
     }

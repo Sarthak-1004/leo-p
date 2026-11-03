@@ -1,39 +1,110 @@
+import { useState } from "react";
 import { usePreview } from "../app/PreviewContext";
-import { NavLink, Link } from "react-router";
+import type { PreviewValue } from "../app/context";
+import { NavLink, Link, useLocation } from "react-router";
 import { Icon } from "./Icon";
-const studentNavigation = [
-  ["dashboard", "Dashboard", "/student/dashboard"],
-  ["book", "Practice", "/student/practice"],
-  ["test", "Practice Mock Tests", "/student/practice-mocks"],
-  ["test", "Full Length Tests", "/student/mock-tests"],
-  ["bell", "Notifications", "/student/notifications"],
-  ["history", "Test History", "/student/history"],
-  ["trophy", "Leaderboard", "/student/leaderboard"],
-  ["user", "Profile", "/student/profile"],
+type CountKey = "practice" | "practiceMocks" | "flts" | "students" | "trainers" | "tests" | "questions" | "unread";
+// `short` is the visible text inside narrow groups; `label` stays the accessible name.
+type NavEntry = { icon: string; label: string; to: string; count?: CountKey; short?: string };
+type NavGroup = { icon: string; label: string; items: NavEntry[] };
+type NavNode = NavEntry | NavGroup;
+const link = (icon: string, label: string, to: string, count?: CountKey): NavEntry => ({ icon, label, to, count });
+const studentNavigation: NavNode[] = [
+  link("dashboard", "Dashboard", "/student/dashboard"),
+  { icon: "test", label: "Tests", items: [
+    link("book", "Practice", "/student/practice", "practice"),
+    { ...link("clock", "Practice Mock Tests", "/student/practice-mocks", "practiceMocks"), short: "Practice Mocks" },
+    link("test", "Full Length Tests", "/student/mock-tests", "flts"),
+  ] },
+  link("bell", "Notifications", "/student/notifications", "unread"),
+  link("history", "Test History", "/student/history"),
+  link("trophy", "Leaderboard", "/student/leaderboard"),
+  link("user", "Profile", "/student/profile"),
 ];
-const adminNavigation = [
-  ["dashboard", "Admin Overview", "/admin/dashboard"],
-  ["users", "Students", "/admin/students"],
-  ["users", "Trainers & assignments", "/admin/trainers"],
-  ["test", "Test Management", "/admin/mock-tests"],
-  ["book", "Question Bank", "/admin/questions"],
-  ["book", "Media library", "/admin/media"],
-  ["book", "Content import", "/admin/imports"],
-  ["chart", "Results", "/admin/results"],
-  ["chart", "Reports", "/admin/reports"],
-  ["bell", "Notifications", "/admin/notifications"],
-  ["history", "Operations", "/admin/operations"],
-  ["history", "Audit log", "/admin/audit"],
-  ["settings", "Settings", "/admin/settings"],
+const adminNavigation: NavNode[] = [
+  link("dashboard", "Admin Overview", "/admin/dashboard"),
+  { icon: "users", label: "People", items: [
+    link("users", "Students", "/admin/students", "students"),
+    { ...link("users", "Trainers & assignments", "/admin/trainers", "trainers"), short: "Trainers" },
+  ] },
+  { icon: "book", label: "Content", items: [
+    link("test", "Test Management", "/admin/mock-tests", "tests"),
+    link("book", "Question Bank", "/admin/questions", "questions"),
+    link("play", "Media library", "/admin/media"),
+    link("plus", "Content import", "/admin/imports"),
+  ] },
+  { icon: "chart", label: "Results", items: [
+    link("check", "Results", "/admin/results"),
+    link("chart", "Reports", "/admin/reports"),
+  ] },
+  link("bell", "Notifications", "/admin/notifications", "unread"),
+  { icon: "settings", label: "System", items: [
+    link("history", "Operations", "/admin/operations"),
+    link("shield", "Audit log", "/admin/audit"),
+    link("settings", "Settings", "/admin/settings"),
+  ] },
 ];
-const trainerNavigation = [
-  ["dashboard", "Trainer Overview", "/trainer/dashboard"],
-  ["users", "Students", "/trainer/students"],
-  ["test", "Evaluation Queue", "/trainer/evaluations"],
-  ["chart", "Reports", "/trainer/reports"],
-  ["bell", "Notifications", "/trainer/notifications"],
-  ["user", "Profile", "/trainer/profile"],
+const trainerNavigation: NavNode[] = [
+  link("dashboard", "Trainer Overview", "/trainer/dashboard"),
+  link("users", "Students", "/trainer/students"),
+  link("test", "Evaluation Queue", "/trainer/evaluations"),
+  link("chart", "Reports", "/trainer/reports"),
+  link("bell", "Notifications", "/trainer/notifications", "unread"),
+  link("user", "Profile", "/trainer/profile"),
 ];
+// Counts come from already-loaded portal data; lists capped by pagination show "+".
+function navCounts(data: PreviewValue): Partial<Record<CountKey, string>> {
+  const capped = (n: number) => `${n}${data.hasMore && n >= 500 ? "+" : ""}`;
+  const offered = (kind: "FLT" | "PRACTICE_MOCK") => data.tests.filter(t => t.kind === kind && t.available && t.course === data.course).length;
+  const unread = data.notifications.filter(n => !n.read).length;
+  return {
+    practice: capped(data.questions.length), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
+    students: String(data.statistics?.students ?? capped(data.students.length)), trainers: String(data.statistics?.trainers ?? capped(data.trainers.length)),
+    tests: String(data.tests.length), questions: capped(data.questions.length), ...(unread ? { unread: String(unread) } : {}),
+  };
+}
+function NavItem({ entry, count, collapsed, close }: { entry: NavEntry; count?: string; collapsed: boolean; close?: () => void }) {
+  return (
+    <NavLink
+      to={entry.to}
+      onClick={close}
+      aria-label={count ? `${entry.label} (${count})` : entry.label}
+      title={collapsed || entry.short ? entry.label : undefined}
+      onPointerEnter={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
+      onFocus={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
+      className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+    >
+      <Icon name={entry.icon} />
+      <span className="sidebar-label">{collapsed ? entry.label : entry.short ?? entry.label}</span>
+      {count && <span className="nav-count sidebar-label">({count})</span>}
+      {collapsed && (
+        <span className="nav-tooltip" role="tooltip">
+          {entry.label}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+function NavSection({ group, counts, close }: { group: NavGroup; counts: Partial<Record<CountKey, string>>; close?: () => void }) {
+  const { pathname } = useLocation();
+  const containsActive = group.items.some(item => pathname.startsWith(item.to));
+  const [open, setOpen] = useState(true);
+  const id = `nav-group-${group.label.toLowerCase()}`;
+  return (
+    <div className="nav-group">
+      <button type="button" className={`nav-item nav-group-toggle ${containsActive && !open ? "has-active" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+        <Icon name={group.icon} />
+        <span className="sidebar-label">{group.label}</span>
+        <span className="nav-group-chevron"><Icon name="chevron" size={16} /></span>
+      </button>
+      {open && (
+        <div className="nav-group-items" id={id}>
+          {group.items.map(item => <NavItem key={item.to} entry={item} count={item.count && counts[item.count]} collapsed={false} close={close} />)}
+        </div>
+      )}
+    </div>
+  );
+}
 export function Sidebar({
   admin = false,
   trainer = false,
@@ -45,7 +116,8 @@ export function Sidebar({
   collapsed?: boolean;
   close?: () => void;
 }) {
-  const {mode,logout}=usePreview();
+  const portal=usePreview();const {mode,logout}=portal;
+  const counts=navCounts(portal);
   return (
     <div
       className={`sidebar-content ${collapsed ? "compact" : ""}`}
@@ -66,29 +138,13 @@ export function Sidebar({
         {admin ? "CURRICULUM & MANAGEMENT" : trainer ? "EVALUATION & STUDENTS" : "YOUR LEARNING SPACE"}
       </p>
       <nav aria-label={admin ? "Admin navigation" : trainer ? "Trainer navigation" : "Student navigation"}>
-        {(admin ? adminNavigation : trainer ? trainerNavigation : studentNavigation).map(
-          ([icon, label, to]) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={close}
-              aria-label={label}
-              title={collapsed ? label : undefined}
-              onPointerEnter={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
-              onFocus={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
-              className={({ isActive }) =>
-                `nav-item ${isActive ? "active" : ""}`
-              }
-            >
-              <Icon name={icon} />
-              <span className="sidebar-label">{label}</span>
-              {collapsed && (
-                <span className="nav-tooltip" role="tooltip">
-                  {label}
-                </span>
-              )}
-            </NavLink>
-          ),
+        {/* Collapsed rails flatten groups so every page icon stays visible. */}
+        {(admin ? adminNavigation : trainer ? trainerNavigation : studentNavigation).flatMap(node =>
+          "items" in node
+            ? collapsed
+              ? node.items.map(item => <NavItem key={item.to} entry={item} collapsed close={close} />)
+              : [<NavSection key={node.label} group={node} counts={counts} close={close} />]
+            : [<NavItem key={node.to} entry={node} count={node.count && counts[node.count]} collapsed={collapsed} close={close} />],
         )}
       </nav>
       <div className="sidebar-bottom">

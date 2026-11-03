@@ -499,6 +499,61 @@ main:focus {
   color: white;
   box-shadow: 0 4px 8px #00155012;
 }
+.nav-count {
+  color: #9fb3e8;
+  font-weight: 500;
+  font-size: 12px;
+}
+.nav-item.active .nav-count {
+  color: #dce6ff;
+}
+.nav-group-toggle {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-group-toggle.has-active {
+  color: white;
+  background: #ffffff15;
+}
+.nav-group-chevron {
+  margin-left: auto;
+  display: flex;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+.nav-group-toggle[aria-expanded="false"] .nav-group-chevron {
+  transform: rotate(0deg);
+}
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 6px 23px;
+  padding-left: 6px;
+  border-left: 1px solid #ffffff26;
+}
+.nav-group-items .nav-item {
+  min-height: 40px;
+  padding: 9px 10px;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.nav-group-items .nav-item .sidebar-label:not(.nav-count) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.nav-group-items .nav-count {
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
 .sidebar-bottom {
   margin-top: auto;
   padding-top: 40px;
@@ -1164,6 +1219,131 @@ td small {
 }
 .builder-question .actions {
   flex-wrap: nowrap;
+}
+.builder-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 20px;
+}
+.builder-progress-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 52px;
+  padding: 12px 16px;
+  border: 1px solid #e3e9f4;
+  border-radius: 12px;
+  background: white;
+  color: #434654;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.builder-progress-item strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #1b2340;
+}
+.builder-progress-item.active {
+  border-color: var(--color-primary-container);
+  background: #edf2ff;
+  color: #003bb5;
+  box-shadow: inset 0 0 0 1px var(--color-primary-container);
+}
+.builder-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.builder-results {
+  max-height: 560px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 4px;
+  padding-right: 4px;
+}
+.builder-result:has(input:disabled:not(:checked)) {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+.builder-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.builder-prompt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.builder-result-body .row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.builder-order {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.builder-order .builder-question {
+  justify-content: flex-start;
+  padding: 10px 12px;
+}
+.builder-question input.builder-position {
+  flex: 0 0 64px;
+  width: 64px;
+  min-height: 40px;
+  padding-inline: 6px;
+  text-align: center;
+}
+.builder-question-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.builder-order .builder-question .actions {
+  margin-left: auto;
+}
+.readiness {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.readiness li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.readiness li .icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.readiness .ok {
+  color: #146c43;
+}
+.readiness .missing {
+  color: #9a3412;
+}
+@media (max-width: 767px) {
+  .builder-progress {
+    grid-template-columns: 1fr;
+  }
+  .builder-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+  .builder-filters .field:first-child {
+    grid-column: 1 / -1;
+  }
 }
 .course-card {
   padding: 24px;
