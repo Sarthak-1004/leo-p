@@ -62,7 +62,7 @@ export async function saveTestRecord(tx:Db|Tx,user:Identity,input:z.infer<typeof
     await audit(tx,user.id,"Test updated",`${t.course}/${t.id}`,{version:t.version,published:t.published,available:t.available,conversionChanged:!!input.conversions,...(input.conversions?{previousConversions:old?.conversions??null,conversions}:{}),previous:old?{published:old.published,available:old.available,builder:old.builder}:null,builder:input.builder});
     if(t.kind==="FLT"&&t.published&&t.available&&(!old?.available||!old.published)) {
       const students=await tx.student.findMany({where:{course:t.course,user:{enabled:true}},select:{id:true}});
-      for(const s of students)await notify(tx,s.id,`${t.title} is now available.`,"/student/mock-tests");
+      await tx.notification.createMany({data:students.map(s=>({userId:s.id,title:`${t.title} is now available.`,href:"/student/mock-tests"}))});
     }
     return t;
 }

@@ -8,12 +8,13 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import type { Db } from "./db.js";
-import { json, transaction, Prisma, retryableTransactionError } from "./db.js";
+import { json, lockedTransaction, transaction, Prisma, retryableTransactionError } from "./db.js";
 import type { Config } from "./config.js";
-import { authenticate, active, admin, audit, digest, hashPassword, passwordNeedsRehash, notify, sessionFor, staff, studentOnly, throttle, verifyPassword, type Authenticated } from "./auth.js";
+import { randomBytes } from "node:crypto";
+import { authenticate, active, admin, audit, digest, hashPassword, passwordNeedsRehash, notify, sessionFor, staff, studentOnly, throttle, throttleCount, verifyPassword, type Authenticated } from "./auth.js";
 import { assert, ApiError, course, defaultSettings, heartbeatSchema, identifier, password, questionSchema, settingsSchema, roundBand } from "./domain.js";
-import { bootstrap, publicQuestion, resultView, userView } from "./views.js";
-import { owned, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
+import { bootstrap, publicQuestion, resultView, staffAttemptView, userView } from "./views.js";
+import { forceSubmit, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
 import { claim, evaluate, evaluationSchema, release } from "./evaluation.js";
 import { saveQuestion, saveTest, testSchema } from "./content.js";
 import { saveStudent, saveTrainer, studentSchema, trainerSchema } from "./accounts.js";
@@ -62,9 +63,19 @@ export async function buildApp(db:Db,config:Config) {
     const sensitive=(path.startsWith("/api/admin/")&&role==="ADMIN")||(path==="/api/results/release"&&role==="ADMIN")||(/^\/api\/results\/:id\/(evaluation|retry-ai)$/.test(path)&&role!=="STUDENT");
     if(sensitive&&!["GET","HEAD","OPTIONS"].includes(req.method)&&!(req.auth.reauthUntil&&req.auth.reauthUntil>new Date()))throw new ApiError(403,"Confirm your password before continuing","REAUTH_REQUIRED");
   });
+  // Record IDs are UUIDs, and PostgreSQL rejects NUL in text: refuse both before any query.
+  const uuidRoutes=/^\/api\/(attempts|results|notifications|assets|admin\/attempts|admin\/imports)\/:id(\/|$)/;
+  const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  app.addHook("preValidation",async req=>{
+    const id=(req.params as Record<string,string>|undefined)?.id;
+    if(id!==undefined&&uuidRoutes.test(req.routeOptions.url??""))assert(uuidPattern.test(id),404,"Record not found");
+    assert(!JSON.stringify([req.query??null,req.params??null,req.body??null]).includes("\\u0000"),400,"Remove unsupported null characters");
+  });
   app.setErrorHandler((error,req,reply)=>{
     if(retryableTransactionError(error))return reply.code(409).send({message:"This record changed during saving. Reload and try again"});
     if(error instanceof z.ZodError)return reply.code(400).send({message:"Check the submitted fields",issues:error.issues.map(i=>({path:i.path.join("."),message:i.message}))});
+    // P2028: no pooled connection became free in time (a burst). Safe to retry; nothing was committed.
+    if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==="P2028")return reply.code(503).header("Retry-After","3").send({message:"The portal is busy. Please try again in a few seconds",code:"BUSY"});
     if(error instanceof Prisma.PrismaClientKnownRequestError&&["P2002","P2025","P2034"].includes(error.code))return reply.code(409).send({message:"The record changed or this identifier is already in use. Refresh and try again"});
     if(error instanceof ApiError)return reply.code(error.statusCode).send({message:error.message,...(error.code?{code:error.code}:{})});
     const status=(error as any).statusCode;
@@ -86,14 +97,24 @@ export async function buildApp(db:Db,config:Config) {
     // unrelated identifiers exhaust one low shared login bucket. Aliases of an
     // existing account share its canonical key, including across requested roles.
     const account=digest(u?`user:${u.id}`:`unknown:${input.identifier.toLowerCase()}`);
-    await throttle(db,`login-source:${digest(req.ip)}:${account}`,30,900);
-    await throttle(db,`login-account:${account}`,12,900);
+    // Only failures count, and a success clears them. A browser that previously signed in to
+    // this account keeps its own failure budget, so a stranger's wrong guesses (which share the
+    // account budget) cannot lock the student out of their usual device.
+    const deviceToken=req.cookies.kanan_device;
+    const device=deviceToken&&deviceToken.length<=256?await db.trustedDevice.findUnique({where:{tokenHash:digest(deviceToken)}}):null;
+    const trusted=!!u&&device?.userId===u.id;
+    const failKey=trusted?`login-device-failed:${digest(deviceToken!)}`:`login-failed:${account}`;
+    assert(await throttleCount(db,failKey)<12,429,"Too many sign-in attempts. Try again in 15 minutes");
     // Equalize unknown-account password work without logging or retaining credentials.
     const valid=await verifyPassword(input.password,u?.passwordHash??unknownAccountHash);
     if(!(u&&valid&&u.enabled&&u.role.toLowerCase()===input.role)){
-      const failed=await throttle(db,`login-failed:${account}`,1000,900);if(failed===5)await securityAlert(db,"Repeated sign-in failures",account);
+      const failed=await throttle(db,`login-failed:${account}`,100000,900);if(failed===5)await securityAlert(db,"Repeated sign-in failures",account);
+      if(trusted)await throttle(db,failKey,100000,900);
     }
     assert(u&&valid&&u.enabled&&u.role.toLowerCase()===input.role,401,"The ID or password is incorrect");
+    await db.loginThrottle.deleteMany({where:{key:{in:[`login-failed:${account}`,failKey]}}});
+    if(trusted)await db.trustedDevice.update({where:{tokenHash:digest(deviceToken!)},data:{lastUsedAt:new Date()}});
+    else{const token=randomBytes(32).toString("base64url");await db.trustedDevice.create({data:{tokenHash:digest(token),userId:u.id}});reply.setCookie("kanan_device",token,{httpOnly:true,secure:config.NODE_ENV==="production",sameSite:"strict",path:"/api/auth",maxAge:180*86400});}
     // CAS prevents a concurrent Admin password reset from being overwritten.
     if(passwordNeedsRehash(u.passwordHash))await db.user.updateMany({where:{id:u.id,passwordHash:u.passwordHash,authVersion:u.authVersion},data:{passwordHash:await hashPassword(input.password)}});
     const session=await sessionFor(db,u,config);
@@ -104,7 +125,15 @@ export async function buildApp(db:Db,config:Config) {
   app.post("/api/auth/reauth",async req=>{const b=z.object({password:z.string().min(1).max(128)}).strict().parse(req.body);return reauthenticate(db,req.auth!,b.password);});
   app.get("/api/auth/me",async req=>({user:userView(user(req),config),csrfToken:req.auth!.csrfToken}));
   app.post("/api/auth/logout",async(req,reply)=>{await db.session.deleteMany({where:{tokenHash:req.auth!.tokenHash}});reply.clearCookie("kanan_session",{path:"/"});return {ok:true};});
-  app.get("/api/bootstrap",async req=>{const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(500).default(500)}).parse(req.query);return bootstrap(db,user(req),q.offset,q.limit);});
+  // Staff dashboards are large (hundreds of students and results); building at most six at once
+  // bounds server memory when a whole team signs in together. Student dashboards are small.
+  let staffBuilding=0;const staffQueue:Array<()=>void>=[];
+  app.get("/api/bootstrap",async req=>{
+    const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(500).default(500)}).parse(req.query);const u=user(req);
+    if(u.role==="STUDENT")return bootstrap(db,u,q.offset,q.limit,config.ACCESS_TIMEZONE);
+    if(staffBuilding>=6)await new Promise<void>(resolve=>staffQueue.push(resolve));else staffBuilding++;
+    try{return await bootstrap(db,u,q.offset,q.limit,config.ACCESS_TIMEZONE);}finally{const next=staffQueue.shift();if(next)next();else staffBuilding--;}
+  });
   app.put("/api/admin/students/:id",async req=>{const b=studentSchema.parse(req.body);assert(b.id===(req.params as any).id,400,"Student ID mismatch");return saveStudent(db,user(req),b);});
   app.put("/api/admin/trainers/:id",async req=>{const b=trainerSchema.parse(req.body);assert(b.id===(req.params as any).id,400,"Trainer ID mismatch");return saveTrainer(db,user(req),b);});
   app.post("/api/admin/users/:id/password",async req=>{
@@ -125,14 +154,21 @@ export async function buildApp(db:Db,config:Config) {
   app.put("/api/admin/settings",async req=>{const u=user(req);admin(u);const value=settingsSchema.parse(req.body);await transaction(db,async tx=>{await tx.platformSetting.upsert({where:{id:"platform"},create:{id:"platform",value},update:{value,version:{increment:1}}});await audit(tx,u.id,"Settings updated","platform");});return value;});
   app.post("/api/tests/:course/:id/start",async req=>startTest(db,user(req),course.parse((req.params as any).course),identifier.parse((req.params as any).id)));
   app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional()}).strict().parse(req.body)));
-  app.get("/api/attempts/:id",async req=>{const a=await owned(db,user(req),(req.params as any).id);if(user(req).role!=="STUDENT")staff(user(req));return resumeAttempt(db,user(req),a.id);});
+  app.get("/api/attempts/:id",async req=>{
+    const u=user(req),id=(req.params as any).id;
+    if(u.role==="STUDENT")return resumeAttempt(db,u,id,z.object({session:z.string().uuid().optional()}).parse(req.query).session);
+    // Staff get a read-only view with the full paper and keys; it never takes over the student's session.
+    staff(u);const a=await db.attempt.findUnique({where:{id}});assert(a,404,"Attempt not found");return staffAttemptView(a);
+  });
   app.post("/api/attempts/:id/heartbeat",async req=>signal(db,user(req),(req.params as any).id,heartbeatSchema.parse(req.body)));
   app.post("/api/attempts/:id/submit",async req=>signal(db,user(req),(req.params as any).id,heartbeatSchema.parse(req.body),true));
   app.get("/api/results/:id",async req=>{
     const u=user(req);const r=await db.result.findUnique({where:{id:(req.params as any).id},include:{revisions:u.role!=="STUDENT",jobs:{where:{state:"COMPLETED"}},attempt:true}});
     assert(r&&(u.role!=="STUDENT"||(r.studentId===u.id&&r.course===u.student?.course&&(r.kind!=="FLT"||r.released))),404,"Result not found");
     const dto=resultView(r,u);assert(dto.visible,409,"Scoring is not complete");
-    return {...dto,responses:r.attempt.answers,questions:(r.attempt.snapshot as any).questions.map((q:any)=>publicQuestion(q,true))};
+    // Practice Mocks allow two attempts on the same paper: keep keys hidden until both are used.
+    const keysWithheld=u.role==="STUDENT"&&r.kind==="PRACTICE_MOCK"&&await db.attempt.count({where:{studentId:u.id,course:r.course,testId:r.testId,state:"SUBMITTED"}})<2;
+    return {...dto,keysWithheld,responses:r.attempt.answers,questions:(r.attempt.snapshot as any).questions.map((q:any)=>publicQuestion(q,!keysWithheld))};
   });
   app.post("/api/results/:id/claim",async req=>claim(db,user(req),(req.params as any).id));
   app.put("/api/results/:id/evaluation",async req=>evaluate(db,user(req),(req.params as any).id,evaluationSchema.parse(req.body)));
@@ -144,7 +180,7 @@ export async function buildApp(db:Db,config:Config) {
   });
   app.post("/api/notifications/read-all",async req=>{const result=await db.notification.updateMany({where:{userId:user(req).id,read:false},data:{read:true}});return {count:result.count};});
   app.post("/api/notifications/:id/read",async req=>{await db.notification.updateMany({where:{id:(req.params as any).id,userId:user(req).id},data:{read:true}});return {ok:true};});
-  app.post("/api/admin/announcements",async req=>{const u=user(req);admin(u);const b=z.object({title:z.string().trim().min(1).max(300),role:z.enum(["STUDENT","TRAINER"]),course:course.optional()}).strict().parse(req.body);assert(b.role==="STUDENT"||!b.course,400,"Course filters apply to Students");const count=await transaction(db,async tx=>{const users=await tx.user.findMany({where:{role:b.role,enabled:true,...(b.course?{student:{course:b.course}}:{})},select:{id:true}});for(const to of users)await notify(tx,to.id,b.title,`/${b.role.toLowerCase()}/notifications`);await audit(tx,u.id,"Announcement sent",b.role,{count:users.length,course:b.course??"both"});return users.length;});return {ok:true,count};});
+  app.post("/api/admin/announcements",async req=>{const u=user(req);admin(u);const b=z.object({title:z.string().trim().min(1).max(300),role:z.enum(["STUDENT","TRAINER"]),course:course.optional()}).strict().parse(req.body);assert(b.role==="STUDENT"||!b.course,400,"Course filters apply to Students");const count=await transaction(db,async tx=>{const users=await tx.user.findMany({where:{role:b.role,enabled:true,...(b.course?{student:{course:b.course}}:{})},select:{id:true}});await tx.notification.createMany({data:users.map(to=>({userId:to.id,title:b.title,href:`/${b.role.toLowerCase()}/notifications`}))});await audit(tx,u.id,"Announcement sent",b.role,{count:users.length,course:b.course??"both"});return users.length;});return {ok:true,count};});
   app.post("/api/admin/imports/:kind",async req=>{admin(user(req));const part=await req.file();assert(part,400,"Choose a file");return previewImport(db,user(req),(req.params as any).kind,await part.toBuffer(),part.filename);});
   app.post("/api/admin/imports/:id/confirm",async req=>confirmImport(db,user(req),(req.params as any).id));
   app.get("/api/admin/imports/:id/errors",async(req,reply)=>{admin(user(req));const batch=await db.importBatch.findFirst({where:{id:(req.params as any).id,actorId:user(req).id}});assert(batch,404,"Import not found");const rows=batch.rows as any[];reply.header("Content-Disposition",'attachment; filename="import-errors.csv"').type("text/csv; charset=utf-8");return csvExport([["Row","Error"],...rows.filter(r=>r.error).map(r=>[String(r.row),r.error])]);});
@@ -155,14 +191,17 @@ export async function buildApp(db:Db,config:Config) {
   app.get("/api/leaderboard",async req=>{
     const u=user(req);studentOnly(u);const setting=await db.platformSetting.findUnique({where:{id:"platform"}});assert((setting?.value as any)?.leaderboard,404,"Leaderboard is disabled");
     const period=z.enum(["Weekly","Monthly","Overall"]).parse((req.query as any).period??"Weekly");const since=new Date(Date.now()-(period==="Weekly"?7:period==="Monthly"?30:36500)*86400000);
-    const rows=await db.result.findMany({where:{course:u.student.course,date:{gte:since},overall:{not:null},OR:[{kind:"FLT",released:true},{kind:"PRACTICE_MOCK",writing:{not:null},listening:{not:null},reading:{not:null}}]},orderBy:{date:"desc"},take:10000});
-    const latest=new Map<string,typeof rows[number]>();for(const r of rows){const key=`${r.studentId}/${r.testId}`;if(!latest.has(key))latest.set(key,r);}
-    const groups=new Map<string,number[]>();for(const r of latest.values()){const values=groups.get(r.studentId)??[];values.push(r.overall!);groups.set(r.studentId,values);}
-    const people=await db.user.findMany({where:{id:{in:[...groups.keys()]}},select:{id:true,name:true}});
-    return [...groups].map(([id,bands])=>{const names=people.find(p=>p.id===id)!.name.split(/\s+/);return {name:`${names[0]} ${names.at(-1)?.[0]??""}.`,band:roundBand(bands.reduce((a,b)=>a+b,0)/bands.length),completed:bands.length};}).sort((a,b)=>b.band-a.band||a.name.localeCompare(b.name)).slice(0,100);
+    // Latest result per student and test, averaged per student, entirely in PostgreSQL (no row cap).
+    const ranked=await db.$queryRaw<Array<{name:string;average:number;completed:number}>>`
+      SELECT u."name",AVG(x."overall")::float AS average,count(*)::int AS completed FROM (
+        SELECT DISTINCT ON (r."studentId",r."testId") r."studentId",r."overall" FROM "Result" r
+        WHERE r."course"=${u.student.course}::"Course" AND r."date">=${since} AND r."overall" IS NOT NULL
+          AND ((r."kind"='FLT' AND r."released") OR (r."kind"='PRACTICE_MOCK' AND r."writing" IS NOT NULL AND r."listening" IS NOT NULL AND r."reading" IS NOT NULL))
+        ORDER BY r."studentId",r."testId",r."date" DESC) x JOIN "User" u ON u."id"=x."studentId" GROUP BY x."studentId",u."name"`;
+    return ranked.map(r=>{const names=r.name.split(/\s+/);return {name:`${names[0]} ${names.at(-1)?.[0]??""}.`,band:roundBand(r.average),completed:r.completed};}).sort((a,b)=>b.band-a.band||a.name.localeCompare(b.name)).slice(0,100);
   });
-  app.get("/api/reports",async req=>reports(db,user(req),reportQuery.parse(req.query)));
-  app.get("/api/reports/export",async(req,reply)=>{const result=await reports(db,user(req),reportQuery.parse(req.query),true);return reply.header("Content-Disposition",'attachment; filename="academic-report.csv"').type("text/csv; charset=utf-8").send(result);});
+  app.get("/api/reports",async req=>reports(db,user(req),reportQuery.parse(req.query),false,config.ACCESS_TIMEZONE));
+  app.get("/api/reports/export",async(req,reply)=>{const result=await reports(db,user(req),reportQuery.parse(req.query),true,config.ACCESS_TIMEZONE);return reply.header("Content-Disposition",'attachment; filename="academic-report.csv"').type("text/csv; charset=utf-8").send(result);});
   app.get("/api/admin/operations",async req=>{
     admin(user(req));const [failedJobs,pendingJobs,flagged,unreviewed,settings]=await Promise.all([db.evaluationJob.count({where:{state:"FAILED"}}),db.evaluationJob.count({where:{state:{in:["PENDING","RUNNING"]}}}),db.attempt.count({where:{flagged:true}}),db.attempt.count({where:{flagged:true,reviewedAt:null}}),platformSettings(db)]);
     return {failedJobs,pendingJobs,flagged,unreviewed,storageConfigured:!!config.S3_BUCKET,writingConfigured:!!config.OPENAI_API_KEY&&!!config.OPENAI_MODEL,autoWritingEvaluation:settings.autoWritingEvaluation};
@@ -175,9 +214,13 @@ export async function buildApp(db:Db,config:Config) {
   app.get("/api/admin/attempts",async req=>{
     admin(user(req));const q=z.object({page:z.coerce.number().int().min(1).default(1),course:course.optional(),studentId:z.string().max(80).optional(),filter:z.enum(["all","flagged","unreviewed","in-progress"]).default("unreviewed")}).parse(req.query);
     const where={...(q.course?{course:q.course}:{}),...(q.studentId?{studentId:q.studentId}:{}),...(q.filter==="flagged"||q.filter==="unreviewed"?{flagged:true}:{}),...(q.filter==="unreviewed"?{reviewedAt:null}:{}),...(q.filter==="in-progress"?{state:"IN_PROGRESS" as const}:{})};
-    const [count,rows]=await Promise.all([db.attempt.count({where}),db.attempt.findMany({where,orderBy:{createdAt:"desc"},skip:(q.page-1)*25,take:25,select:{id:true,studentId:true,course:true,testId:true,kind:true,state:true,interruptions:true,flagged:true,reviewedAt:true,reviewerId:true,reviewRemarks:true,remainingMs:true,createdAt:true,submittedAt:true,logs:{orderBy:{at:"asc"}},student:{select:{user:{select:{name:true}}}}}})]);return {count,page:q.page,rows};
+    const [count,rows]=await Promise.all([db.attempt.count({where}),db.attempt.findMany({where,orderBy:{createdAt:"desc"},skip:(q.page-1)*25,take:25,select:{id:true,studentId:true,course:true,testId:true,kind:true,state:true,interruptions:true,flagged:true,reviewedAt:true,reviewerId:true,reviewRemarks:true,remainingMs:true,hiddenMs:true,activeMs:true,createdAt:true,submittedAt:true,logs:{orderBy:{at:"asc"}},student:{select:{user:{select:{name:true}}}}}})]);return {count,page:q.page,rows};
   });
   app.post("/api/admin/attempts/:id/review",async req=>{const u=user(req);admin(u);const b=z.object({remarks:z.string().trim().min(1).max(2000)}).strict().parse(req.body);const id=z.string().uuid().parse((req.params as any).id);await transaction(db,async tx=>{const a=await tx.attempt.findUnique({where:{id}});assert(a?.flagged,404,"Flagged attempt not found");await tx.attempt.update({where:{id},data:{reviewedAt:new Date(),reviewerId:u.id,reviewRemarks:b.remarks}});await audit(tx,u.id,"Interruption review completed",id,{previousRemarks:a.reviewRemarks,remarks:b.remarks,interruptions:a.interruptions});});return {ok:true};});
+  app.post("/api/admin/attempts/:id/submit",async req=>{
+    const u=user(req);admin(u);const b=z.object({remarks:z.string().trim().min(1).max(2000)}).strict().parse(req.body);const id=(req.params as any).id;
+    const done=await lockedTransaction(db,tx=>forceSubmit(tx,id,u.id,b.remarks));assert(done,409,"This attempt is not in progress");return {ok:true};
+  });
   app.get("/api/admin/audit",async req=>{admin(user(req));const q=z.object({search:z.string().max(200).default(""),page:z.coerce.number().int().min(1).default(1)}).parse(req.query);const where={OR:[{action:{contains:q.search,mode:"insensitive" as const}},{target:{contains:q.search,mode:"insensitive" as const}},{actorId:{contains:q.search,mode:"insensitive" as const}}]};const [count,rows]=await Promise.all([db.auditLog.count({where}),db.auditLog.findMany({where,orderBy:{at:"desc"},take:25,skip:(q.page-1)*25})]);return {count,rows};});
   app.post("/api/admin/results/release-scope",async req=>{const u=user(req);admin(u);const b=z.object({course,testId:z.string().max(80).optional()}).strict().parse(req.body);let count=0;for(;;){const rows=await db.result.findMany({where:{course:b.course,...(b.testId?{testId:b.testId}:{}),kind:"FLT",released:false,reviewStatus:"Completed",listening:{not:null},reading:{not:null},writing:{not:null}},select:{id:true},take:100});if(!rows.length)break;const batch=await release(db,u,rows.map(r=>r.id));count+=batch.released.length;if(!batch.released.length)break;}return {count};});
   const dist=resolve(process.cwd(),"../frontend/dist");

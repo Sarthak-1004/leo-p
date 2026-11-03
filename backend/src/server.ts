@@ -10,4 +10,5 @@ const stopWorker=startWorker(db,config);
 let closing=false;
 async function shutdown(){if(closing)return;closing=true;stopWorker();await app.close();await db.$disconnect();}
 process.on("SIGTERM",()=>void shutdown());process.on("SIGINT",()=>void shutdown());
-await app.listen({host:"0.0.0.0",port:config.PORT});
+// A larger accept backlog absorbs a whole class connecting in the same instant (default 511).
+await app.listen({host:"0.0.0.0",port:config.PORT,backlog:4096});

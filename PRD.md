@@ -205,8 +205,15 @@ The SOW delivery phases are discovery/design; core platform; practice/tests; eva
 | Historical student results after expiry | Not accessible by default. |
 | Lower raw-score conversion rows | Admin must supply complete valid tables before production scoring. |
 | Exact section durations/content/audio rules | Configure from approved client test content; no invented exam policy. |
-| Heartbeat timing, concurrent sessions, mid-attempt changes | Implemented defaults: 3-second signals, 7.5-second tolerance, sequence conflicts, immutable snapshots and current access checks; validate on the selected host. |
-| Dates and course history | Inclusive Asia/Kolkata calendar dates; historical original-course records remain staff-accessible. |
+| Heartbeat timing, concurrent sessions, mid-attempt changes | Implemented defaults: 3-second signals (sent from a Web Worker so hidden tabs keep signalling), 7.5-second tolerance, sequence conflicts, immutable snapshots and current access checks; validate on the selected host. Opening an attempt in a new tab takes it over from the old tab. |
+| Hidden tabs (QA 3 Nov 2026) | A hidden tab is still connected: its time is deducted and recorded separately for review. A gap that follows a hidden-tab signal deducts no time (disconnect rule) but flags the attempt for Admin review immediately. |
+| Section order (QA 3 Nov 2026, client to confirm) | Practice Mocks and FLTs open Listening, then Reading, then Writing. A section opens when the previous one is submitted or its time ends; closed sections cannot be reopened. Only the open section's questions and media are sent to the browser. |
+| Abandoned attempts (QA 3 Nov 2026, client to confirm) | An attempt still open after the Admin-configured window (default 12 hours from start) or whose student loses access is submitted with its saved answers. Admin can also submit an attempt on the student's behalf with remarks. This never grants another attempt. |
+| Practice Mock answer keys (QA 3 Nov 2026, client to confirm) | Reference answers appear after both attempts on that test are used. |
+| Usage limits (QA 3 Nov 2026) | Admin-configurable: module practice sessions per student per day (60), AI Writing evaluations per student per day for module practice (5) and for the whole portal (300). Blank module-practice essays score 0 without AI. |
+| Sign-in lockout (QA 3 Nov 2026) | Only failed sign-ins count, and a success clears them. After 12 failures in 15 minutes, new browsers wait; a browser that previously signed in to the account keeps its own budget. |
+| Listening audio replay | Open: replay/seeking in Practice Mocks and FLTs needs a client decision. All attached recordings play in order. |
+| Dates and course history | Inclusive calendar dates in the configured ACCESS_TIMEZONE (default Asia/Kolkata), including report date filters; historical original-course records remain staff-accessible. |
 | Ranking/progress/review | Replaceable defaults are recorded below; latest Practice Mock attempt, available scored records and released-only FLTs. |
 | Incomplete-result release exception | Block incomplete L/R/W by default; reconcile A62 with A65 before an override is offered. |
 | Providers and hosting | User-approved replaceable defaults: PostgreSQL, S3-compatible storage, OpenAI Writing adapter. Real credentials, institution retention/load targets and hosting are launch inputs. |

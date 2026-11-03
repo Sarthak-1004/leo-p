@@ -1,4 +1,5 @@
 import { randomBytes, createHash, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { availableParallelism } from "node:os";
 import type { FastifyRequest } from "fastify";
 import type { Config } from "./config.js";
 import type { Db, Tx } from "./db.js";
@@ -6,13 +7,23 @@ import type { User, Student } from "./generated/prisma/client.js";
 import { ApiError, assert, today } from "./domain.js";
 // Keep memory bounded on the 512 MB testing service, including login bursts.
 // p=3 provides the recommended work at N=2^15 without a 128 MB allocation per job.
-let hashing=0;
+// Each job needs about 32 MB. HASH_CONCURRENCY sets how many run at once (default: cores - 1,
+// between 2 and 4). Hashes run on libuv's thread pool, so values above 4 also need a larger
+// UV_THREADPOOL_SIZE. Throughput, not the queue, decides how fast a whole class can sign in.
+const hashConcurrency=Math.max(1,Number(process.env.HASH_CONCURRENCY)||Math.min(4,Math.max(2,availableParallelism()-1)));
+let hashing=0,averageMs=150;
 const waiting:Array<()=>void>=[];
 async function scrypt(password:string,salt:string,p:number) {
-  if(hashing>=2){assert(waiting.length<16,503,"Sign-in is busy. Try again shortly");await new Promise<void>(resolve=>waiting.push(resolve));}
+  if(hashing>=hashConcurrency){
+    // Answer "busy" at once when the queue could not finish before the 30 s request timeout;
+    // the sign-in page retries with back-off, so a whole class gets in instead of timing out.
+    if((waiting.length+1)/hashConcurrency*averageMs>20000)throw new ApiError(503,"Many students are signing in. Retrying automatically…","BUSY");
+    await new Promise<void>(resolve=>waiting.push(resolve));
+  }
   else hashing++;
+  const started=performance.now();
   try{return await new Promise<Buffer>((resolve,reject)=>scryptCallback(password,salt,64,{N:32768,r:8,p,maxmem:64*1024*1024},(error,hash)=>error?reject(error):resolve(hash)));}
-  finally{const next=waiting.shift();if(next)next();else hashing--;}
+  finally{averageMs=averageMs*0.9+(performance.now()-started)*0.1;const next=waiting.shift();if(next)next();else hashing--;}
 }
 const currentHash=/^scrypt:32768:8:3:[a-f0-9]{32}:[a-f0-9]{128}$/;
 export const passwordNeedsRehash=(stored:string)=>!currentHash.test(stored);
@@ -57,6 +68,11 @@ export async function throttle(db: Db, key: string, limit: number, seconds: numb
   const row = await db.$queryRaw<Array<{count:number}>>`INSERT INTO "LoginThrottle" ("key","count","resetAt") VALUES (${key},1,${new Date(now.getTime()+seconds*1000)}) ON CONFLICT ("key") DO UPDATE SET "count" = CASE WHEN "LoginThrottle"."resetAt" < ${now} THEN 1 ELSE "LoginThrottle"."count"+1 END, "resetAt" = CASE WHEN "LoginThrottle"."resetAt" < ${now} THEN ${new Date(now.getTime()+seconds*1000)} ELSE "LoginThrottle"."resetAt" END RETURNING "count"`;
   if (row[0]!.count > limit) throw new ApiError(429, "Too many requests. Try again later");
   return row[0]!.count;
+}
+// Reads a throttle counter without incrementing it (0 once its window has passed).
+export async function throttleCount(db: Db, key: string) {
+  const row = await db.loginThrottle.findUnique({ where: { key } });
+  return row && row.resetAt > new Date() ? row.count : 0;
 }
 export async function sessionFor(db: Db|Tx, user: User, config: Config) {
   const token = randomBytes(32).toString("base64url");

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transaction, json, Prisma, type Db } from "./db.js";
+import { lockedTransaction, json, Prisma, type Db } from "./db.js";
 import { assert, band, criteria, date, overall } from "./domain.js";
 import { admin, audit, notify, staff, type Identity } from "./auth.js";
 import { resultView } from "./views.js";
@@ -10,7 +10,7 @@ export const evaluationSchema = z.object({
 }).strict();
 export async function evaluate(db:Db,user:Identity,id:string,input:z.infer<typeof evaluationSchema>) {
   staff(user);
-  return transaction(db,async tx=>{
+  return lockedTransaction(db,async tx=>{
     await tx.$queryRaw`SELECT "id" FROM "Result" WHERE "id"=${id} FOR UPDATE`;
     const result=await tx.result.findUnique({where:{id},include:{attempt:{select:{snapshot:true}}}});
     assert(result,404,"Marksheet not found");
@@ -28,6 +28,7 @@ export async function evaluate(db:Db,user:Identity,id:string,input:z.infer<typeo
       await audit(tx,user.id,"Evaluation draft saved",id);
       return resultView(saved,user);
     }
+    assert(!(result.released&&result.kind==="FLT")||[input.listening,input.reading,input.writing].every(n=>n!==null),400,"A released result needs Listening, Reading and Writing bands");
     const modules=new Set(((result.attempt.snapshot as any).questions as any[]).map(q=>q.skill));
     if(result.kind === "PRACTICE")for(const key of ["listening","reading","writing"] as const)assert(modules.has(key[0]!.toUpperCase()+key.slice(1))||input[key]===null,400,"Cannot score a module outside this practice submission");
     assert(!input.completed || (result.kind === "PRACTICE"?(!modules.has("Writing")||input.writing!==null):[input.listening,input.reading,input.writing].every(n=>n!==null)),400,"Complete the required module evaluations before completing review");
@@ -42,7 +43,7 @@ export async function evaluate(db:Db,user:Identity,id:string,input:z.infer<typeo
 }
 export async function release(db:Db,user:Identity,ids:string[]) {
   admin(user);
-  return transaction(db,async tx=>{
+  return lockedTransaction(db,async tx=>{
     const eligible:string[]=[], skipped:Array<{id:string;reason:string}>=[];
     for(const id of [...new Set(ids)].sort()) {
       await tx.$queryRaw`SELECT "id" FROM "Result" WHERE "id"=${id} FOR UPDATE`;
@@ -58,7 +59,7 @@ export async function release(db:Db,user:Identity,ids:string[]) {
 }
 export async function claim(db:Db,user:Identity,id:string) {
   staff(user);
-  return transaction(db,async tx=>{
+  return lockedTransaction(db,async tx=>{
     await tx.$queryRaw`SELECT "id" FROM "Result" WHERE "id"=${id} FOR UPDATE`;
     const result=await tx.result.findUnique({where:{id}});
     assert(result,404,"Marksheet not found");

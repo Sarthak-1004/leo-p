@@ -122,6 +122,6 @@ export interface TestAttempt {
 }
 export interface Notification { id: string; role: Role; recipientId?: string; title: string; href: string; read: boolean; createdAt: string; }
 export interface AuditEvent { actorId?:string; id: string; action: string; target: string; detail: string; at: string; }
-export interface PlatformSettings { institutionName: string; interruptionLimit: number; leaderboard: boolean; supportEmail?:string; supportPhone?:string; supportAddress?:string; defaultAccessDays?:number; mediaLimitMb?:number; autoWritingEvaluation?:boolean; expiryReminders?:boolean; backlogNotifications?:boolean; }
+export interface PlatformSettings { institutionName: string; interruptionLimit: number; leaderboard: boolean; supportEmail?:string; supportPhone?:string; supportAddress?:string; defaultAccessDays?:number; mediaLimitMb?:number; autoWritingEvaluation?:boolean; expiryReminders?:boolean; backlogNotifications?:boolean; attemptWindowHours?:number; dailyPracticeAiLimit?:number; dailyAiBudget?:number; dailyPracticeLimit?:number; }
 
 export interface PracticeRecord { id: string; studentId: string; course: Course; skill: Skill; date: string; correct: number | null; total: number | null; answers: Answers; }

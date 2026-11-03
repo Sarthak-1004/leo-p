@@ -368,15 +368,19 @@ test("reconnect claims cannot cancel continuous server time; actual stale gaps s
   for(let i=0;i<4;i++){const remaining=saved.remainingMs;await db.attempt.update({where:{id:a.id},data:{lastSignalAt:new Date(Date.now()-60000)}});const r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,payload(a));assert.equal(r.statusCode,200,r.body);a=r.json().attempt;saved=await db.attempt.findUniqueOrThrow({where:{id:a.id}});assert.equal(saved.remainingMs,remaining);}
   assert.equal(saved.interruptions,4);assert.equal(saved.flagged,true);
 });
-test("inactive-skill edits and transition smuggling fail; acknowledged switching preserves both sections",async()=>{
+test("full-test sections open in order: no skipping ahead, no going back, no editing other sections",async()=>{
   const f=await fixture();let a=(await call("s1","POST",`/api/tests/GENERAL/${f.id}/start`)).json();const key=`Listening:${f.questions[0]!.id}`;
+  assert.ok(a.questions.every((q:any)=>q.skill==="Listening"),"only the open section's questions are sent");
   for(const suffix of ["heartbeat","submit"])assert.equal((await call("s1","POST",`/api/attempts/${a.id}/${suffix}`,payload(a,{"Writing:Task 1":"unsanctioned"}))).statusCode,400);
   assert.equal((await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{"Writing:Task 1":"smuggled"}),section:2})).statusCode,400);
   assert.equal((await db.attempt.findUniqueOrThrow({where:{id:a.id}})).sequence,0);
-  let r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{[key]:"yes"}),section:2});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;assert.equal(a.section,2);
-  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{"Writing:Task 1":"properly timed answer"}),section:2});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;assert.equal(a.answers[key],"yes");assert.equal(a.answers["Writing:Task 1"],"properly timed answer");
-  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,a.answers),section:0});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
-  const changed={...a.answers,"Writing:Task 1":"changed while Listening"};assert.equal((await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,payload(a,changed))).statusCode,400);
+  let r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{[key]:"yes"}),section:2});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
+  assert.equal(a.section,0,"a request to jump to Writing is ignored");assert.equal(a.answers[key],"yes");
+  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,a.answers),completeSection:true});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
+  assert.equal(a.section,1);assert.ok(a.questions.every((q:any)=>q.skill==="Reading"));
+  r=await call("s1","POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,{...a.answers,[key]:"changed"}),section:0});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
+  assert.equal(a.section,1,"a closed section cannot be reopened");assert.equal(a.answers[key],"yes");
+  assert.equal(await db.attemptLog.count({where:{attemptId:a.id,event:"SECTION_OPEN:Reading"}}),1);
 });
 test("failed identifiers on one gateway cannot exhaust a different user's login bucket",async()=>{
   await db.loginThrottle.deleteMany();
@@ -502,4 +506,117 @@ test("Admin question search filters by skill, course, section and text, and reso
   assert.ok(body.sections.includes("Part 1"));assert.ok(!("answer" in body.rows[0])&&!("passage" in body.rows[0]));
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
+});
+async function freshStudent(course:"GENERAL"|"ACADEMIC"="GENERAL") {
+  const id=`st-${randomUUID().slice(0,8)}`;await db.user.create({data:{id,role:"STUDENT",name:`Student ${id}`,passwordHash:await hashPassword(secret)}});
+  await db.student.create({data:{id,course,startDate:"2020-01-01",expiryDate:"2099-01-01",trainerId:"trainer"}});
+  const r=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:id,password:secret}});assert.equal(r.statusCode,200,r.body);
+  identities.set(id,{cookie:`kanan_session=${r.cookies.find(c=>c.name==="kanan_session")!.value}`,csrf:r.json().csrfToken});return id;
+}
+test("hidden tabs keep exam time running; a gap after a hidden signal is flagged at once",async()=>{
+  const s=await freshStudent();const f=await fixture("FLT");let a=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();
+  await db.attempt.update({where:{id:a.id},data:{lastSignalAt:new Date(Date.now()-3000)}});
+  let r=await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a),hidden:true});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;
+  let saved=await db.attempt.findUniqueOrThrow({where:{id:a.id}});assert.ok(saved.hiddenMs>=2500&&saved.remainingMs<=9000*1000-2500,"hidden connected time is deducted and recorded");assert.equal(saved.flagged,false);
+  await db.attempt.update({where:{id:a.id},data:{lastSignalAt:new Date(Date.now()-600000)}});
+  r=await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,payload(a));assert.equal(r.statusCode,200,r.body);
+  saved=await db.attempt.findUniqueOrThrow({where:{id:a.id}});assert.equal(saved.flagged,true);assert.equal(saved.interruptions,1);
+  assert.equal(await db.attemptLog.count({where:{attemptId:a.id,event:"STOP:HIDDEN_TAB"}}),1);
+});
+test("opening an attempt in a new tab takes it over from the old tab",async()=>{
+  const s=await freshStudent();const f=await fixture();const a=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();
+  const resumed=(await call(s,"GET",`/api/attempts/${a.id}`)).json();assert.notEqual(resumed.sessionKey,a.sessionKey);
+  assert.equal((await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,payload(a))).statusCode,409);
+  assert.equal((await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,payload(resumed))).statusCode,200);
+  // The same page loading twice (React StrictMode, double click) sends one key and keeps it.
+  const tab=randomUUID();const [first,second]=await Promise.all([call(s,"GET",`/api/attempts/${a.id}?session=${tab}`),call(s,"GET",`/api/attempts/${a.id}?session=${tab}`)]);
+  assert.equal(first.json().sessionKey,tab);assert.equal(second.json().sessionKey,tab);
+  const now=(await call(s,"GET",`/api/attempts/${a.id}?session=${tab}`)).json();assert.equal((await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,payload(now))).statusCode,200);
+});
+test("Admin can force-submit; maintenance closes attempts past the window or with inactive access",async()=>{
+  const s=await freshStudent();const f=await fixture("FLT");const a=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();
+  assert.equal((await call("trainer","POST",`/api/admin/attempts/${a.id}/submit`,{remarks:"x"})).statusCode,403);
+  const r=await call("admin","POST",`/api/admin/attempts/${a.id}/submit`,{remarks:"Student lost power"});assert.equal(r.statusCode,200,r.body);
+  assert.equal((await db.attempt.findUniqueOrThrow({where:{id:a.id}})).state,"SUBMITTED");assert.ok(await db.result.findUnique({where:{id:a.id}}));
+  assert.equal((await call("admin","POST",`/api/admin/attempts/${a.id}/submit`,{remarks:"again"})).statusCode,409);
+  const staff=(await call("trainer","GET",`/api/attempts/${a.id}`));assert.equal(staff.statusCode,200,staff.body);assert.equal(staff.json().questions.length,82);assert.ok("answer" in staff.json().questions[0]);assert.equal(staff.json().sessionKey,undefined);
+  const s2=await freshStudent();const f2=await fixture("FLT");const old=(await call(s2,"POST",`/api/tests/GENERAL/${f2.id}/start`)).json();
+  await db.attempt.update({where:{id:old.id},data:{createdAt:new Date(Date.now()-13*3600000)}});
+  const s3=await freshStudent();const f3=await fixture("FLT");const lapsed=(await call(s3,"POST",`/api/tests/GENERAL/${f3.id}/start`)).json();
+  await db.student.update({where:{id:s3},data:{expiryDate:"2020-01-02"}});
+  await maintain(db,loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused"}));
+  for(const id of [old.id,lapsed.id])assert.equal((await db.attempt.findUniqueOrThrow({where:{id}})).state,"SUBMITTED");
+  assert.equal(await db.attemptLog.count({where:{attemptId:{in:[old.id,lapsed.id]},event:"FORCED_SUBMIT"}}),2);
+});
+test("Practice Mock answer keys stay hidden until both attempts are used",async()=>{
+  const s=await freshStudent();const f=await fixture("PRACTICE_MOCK");
+  const first=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();await call(s,"POST",`/api/attempts/${first.id}/submit`,payload(first));
+  await db.result.update({where:{id:first.id},data:{listening:5,reading:5,writing:6}});
+  let r=await call(s,"GET",`/api/results/${first.id}`);assert.equal(r.statusCode,200,r.body);assert.equal(r.json().keysWithheld,true);assert.ok(r.json().questions.every((q:any)=>!("answer" in q)));
+  const second=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();await call(s,"POST",`/api/attempts/${second.id}/submit`,payload(second));
+  r=await call(s,"GET",`/api/results/${first.id}`);assert.equal(r.json().keysWithheld,false);assert.ok("answer" in r.json().questions[0]);
+});
+test("wrong guesses by a stranger cannot lock a student out of a browser that signed in before",async()=>{
+  await db.loginThrottle.deleteMany();const s=await freshStudent();
+  const first=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:s,password:secret}});
+  const device=first.cookies.find(c=>c.name==="kanan_device")!;assert.ok(device?.value&&device.httpOnly&&device.path==="/api/auth");
+  for(let i=0;i<12;i++)assert.equal((await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:s,password:"incorrect"}})).statusCode,401);
+  assert.equal((await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:s,password:secret}})).statusCode,429);
+  const trusted=await app.inject({method:"POST",url:"/api/auth/login",headers:{origin,cookie:`kanan_device=${device.value}`},payload:{role:"student",identifier:s,password:secret}});assert.equal(trusted.statusCode,200,trusted.body);
+  assert.equal((await app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:s,password:secret}})).statusCode,200,"a success clears the account's failures");
+  await db.loginThrottle.deleteMany();
+});
+test("a class signing in at the same moment is queued rather than rejected",async()=>{
+  const ids=Array.from({length:40},(_,i)=>`burst-${i}-${randomUUID().slice(0,4)}`);const hash=await hashPassword(secret);
+  await db.user.createMany({data:ids.map(id=>({id,role:"STUDENT" as const,name:id,passwordHash:hash}))});await db.student.createMany({data:ids.map(id=>({id,course:"GENERAL" as const,startDate:"2020-01-01",expiryDate:"2099-01-01"}))});
+  const codes=(await Promise.all(ids.map(id=>app.inject({method:"POST",url:"/api/auth/login",headers:{origin},payload:{role:"student",identifier:id,password:secret}})))).map(r=>r.statusCode);
+  assert.deepEqual([...new Set(codes)],[200]);
+});
+test("module practice: blank Writing skips AI, AI jobs respect the daily quota, and practice sessions are capped",async()=>{
+  const s=await freshStudent();const qid=`quota-${randomUUID().slice(0,8)}`;
+  await db.question.create({data:{id:qid,skill:"Writing",course:"GENERAL",title:"Quota task",prompt:"Discuss.",section:"Task 2",questionType:"Quota essay",options:[],answer:"",published:true,practiceEligible:true}});
+  const run=async(text:string)=>{const a=(await call(s,"POST","/api/practice/start",{skill:"Writing",mode:"type",selection:"Quota essay",questionId:qid})).json();await call(s,"POST",`/api/attempts/${a.id}/submit`,{...payload(a,text?{"Writing:Task 2":text}:{}),section:2});return db.result.findUniqueOrThrow({where:{id:a.id}});};
+  const blank=await run("");assert.equal(blank.writing,0);assert.equal(blank.aiStatus,"Completed");assert.equal(await db.evaluationJob.count({where:{resultId:blank.id}}),0);
+  for(let i=0;i<5;i++)assert.equal((await run("A real answer.")).aiStatus,"Pending");
+  const over=await run("A real answer.");assert.equal(over.aiStatus,"Manual review");assert.equal(await db.evaluationJob.count({where:{resultId:over.id}}),0);
+  await db.platformSetting.update({where:{id:"platform"},data:{value:{...defaultSettings,dailyPracticeLimit:7}}});
+  try{const r=await call(s,"POST","/api/practice/start",{skill:"Writing",mode:"type",selection:"Quota essay",questionId:qid});assert.equal(r.statusCode,429,r.body);}
+  finally{await db.platformSetting.update({where:{id:"platform"},data:{value:defaultSettings}});}
+});
+test("malformed IDs, NUL characters, broken CSV and real zip bombs return clear 4xx errors",async()=>{
+  assert.equal((await call("s1","GET","/api/attempts/%00")).statusCode,404);assert.equal((await call("s1","GET","/api/results/not-a-uuid")).statusCode,404);
+  assert.equal((await call("admin","GET","/api/admin/questions?search=%00")).statusCode,400);
+  await assert.rejects(parseImport(Buffer.from('id,title\r\na,=HYPERLINK("x")\r\n'),"bad.csv"),(e:any)=>e.statusCode===400&&/line 2/.test(e.message));
+  const {deflateRawSync,crc32}=await import("node:zlib");const name=Buffer.from("xl/bomb.xml"),plain=Buffer.alloc(40*1024*1024),data=deflateRawSync(plain);
+  const local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);local.writeUInt16LE(8,8);local.writeUInt32LE(crc32(plain),14);local.writeUInt32LE(data.length,18);local.writeUInt32LE(1000,22);local.writeUInt16LE(name.length,26);
+  const central=Buffer.alloc(46);central.writeUInt32LE(0x02014b50,0);central.writeUInt16LE(20,4);central.writeUInt16LE(20,6);central.writeUInt16LE(8,10);central.writeUInt32LE(crc32(plain),16);central.writeUInt32LE(data.length,20);central.writeUInt32LE(1000,24);central.writeUInt16LE(name.length,28);central.writeUInt32LE(0,42);
+  const body=Buffer.concat([local,name,data]),dir=Buffer.concat([central,name]),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(1,8);end.writeUInt16LE(1,10);end.writeUInt32LE(dir.length,12);end.writeUInt32LE(body.length,16);
+  await assert.rejects(parseImport(Buffer.concat([body,dir,end]),"bomb.xlsx"),(e:any)=>e.statusCode===400&&/25 MB/.test(e.message));
+});
+test("released FLT bands cannot be cleared and Admin-set passwords must not be trivial",async()=>{
+  const id=await submitted("FLT");let r=await db.result.findUniqueOrThrow({where:{id}});
+  await call("trainer","PUT",`/api/results/${id}/evaluation`,{version:r.version,listening:r.listening,reading:r.reading,writing:6,remarks:"marked",completed:true});
+  assert.equal((await call("admin","POST","/api/results/release",{ids:[id]})).statusCode,200);r=await db.result.findUniqueOrThrow({where:{id}});
+  const cleared=await call("trainer","PUT",`/api/results/${id}/evaluation`,{version:r.version,listening:null,reading:r.reading,writing:6,remarks:"clear",completed:false});assert.equal(cleared.statusCode,400,cleared.body);
+  for(const weak of ["aaaaaaaaaaaa","password1234","123456789012","Kanan2026"])assert.equal((await call("admin","POST","/api/admin/users/s2/password",{password:weak})).statusCode,400,weak);
+});
+test("reports use stored question-type tallies and the configured timezone",async()=>{
+  const id=await submitted();const r=await db.result.findUniqueOrThrow({where:{id}});
+  assert.ok(Array.isArray((r.originalScores as any).typeScores)&&(r.originalScores as any).typeScores.some((t:any)=>t.module==="Listening"&&t.total===40));
+  const report=(await call("admin","GET","/api/reports?questionType=Multiple%20choice&module=Listening")).json();assert.ok(report.questionTypes.some((t:any)=>t.module==="Listening"&&t.total>=40));
+  const day=today("Asia/Kolkata");const inRange=(await call("admin","GET",`/api/reports?from=${day}&to=${day}`)).json();assert.ok(inRange.count>=1);
+});
+test("the restricted runtime role can work normally but cannot alter history or schema",async()=>{
+  const client=pg.getPgClient(dbName);await client.connect();
+  try{
+    await client.query("DROP ROLE IF EXISTS portal_runtime");
+    for(const statement of readFileSync("scripts/runtime-role.sql","utf8").replace("replace-with-a-long-random-password","runtime-test-only").split(/;\s*\n/).filter(s=>s.replace(/--.*$/gm,"").trim()))await client.query(statement);
+    const {default:Pg}=await import("pg");const runtime=new Pg.Client({connectionString:`postgresql://portal_runtime:runtime-test-only@127.0.0.1:55433/${dbName}`});await runtime.connect();
+    try{
+      await runtime.query(`INSERT INTO "AuditLog" ("id","actorId","action","target","detail") VALUES ($1,'t','runtime check','x','{}')`,[randomUUID()]);
+      await runtime.query(`UPDATE "Notification" SET "read"=true WHERE false`);
+      for(const forbidden of [`UPDATE "AuditLog" SET "action"='x'`,`DELETE FROM "ScoreRevision"`,`DROP TRIGGER audit_append_only ON "AuditLog"`,`ALTER TABLE "Result" ADD COLUMN "x" int`,`CREATE TABLE "Evil" ("id" int)`])
+        await assert.rejects(runtime.query(forbidden),forbidden);
+    }finally{await runtime.end();}
+  }finally{await client.query(`REASSIGN OWNED BY portal_runtime TO test_runner; DROP OWNED BY portal_runtime; DROP ROLE IF EXISTS portal_runtime`).catch(()=>{});await client.end();}
 });

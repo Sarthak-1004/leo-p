@@ -1842,3 +1842,10 @@ summary:focus-visible { border-radius: 4px; }
 .report-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; }
 .report-metrics dt { color: var(--color-muted); font-size: 12px; }
 .report-metrics dd { margin: 3px 0 0; font-size: 14px; font-weight: 650; }
+
+/* Accessibility floor: 11px minimum for supplementary text, 24px standalone link targets,
+   larger checkboxes/radios, and 4.5:1 contrast on the locked course card. */
+.badge, .eyebrow, .nav-caption, .brand small, .target-card small { font-size: 11px; }
+.section-title a, .table-link, .exam-header a { display: inline-flex; align-items: center; min-height: 24px; }
+input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+.course-card.locked { color: #545e70; }

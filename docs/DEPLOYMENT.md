@@ -6,6 +6,18 @@ Node 24 is required. Production uses a real PostgreSQL service and a private S3-
 
 Set server environment variables from `backend/.env.example`. Use a secret manager or protected environment, never frontend variables. Required runtime settings are DATABASE_URL and APP_ORIGIN; NODE_ENV=production requires an HTTPS APP_ORIGIN. The browser and `/api` must share an origin. Do not enable VITE_DEMO_MODE for a production build.
 
+## Capacity settings (1,200 students and 100 staff)
+
+Tested on 3 November 2026 with 1,200 students, 100 staff and a year of history (60,000 results); the measurements are in the private QA report kept outside this public repository. These settings control capacity:
+
+| Variable | Default | Guidance |
+|---|---|---|
+| `DATABASE_POOL_SIZE` | 20 | Connections per API instance. Keep the total across instances, plus migrations and backups, below the database plan's connection limit. |
+| `HASH_CONCURRENCY` | cores − 1, between 2 and 4 | Parallel password checks, about 32 MB each. Raise it on larger servers to speed up whole-class sign-in. |
+| `UV_THREADPOOL_SIZE` | 4 (Node default) | Set to at least `HASH_CONCURRENCY` + 2 when `HASH_CONCURRENCY` is above 4. |
+
+Recommended for this size: one API instance with at least 2 vCPU and 2 GB RAM (the test peaked at about 1.3 GB), and PostgreSQL with at least 2 GB RAM and 50+ connections. The free 512 MB Render service and the 30-day free database are not suitable. Sign-ins and test starts that hit a busy server get a 503 "busy" answer and the browser retries automatically. Reports and exports run at most three at a time, and staff dashboards are built at most six at a time, so staff work cannot starve students' exam saves.
+
 S3_BUCKET, S3_REGION and the provider credentials/endpoint enable media uploads. An AWS IAM role may supply credentials instead of static keys. Keep bucket contents private. Grant the application only needed object read/write permissions for its bucket. Student downloads go through an authenticated entitlement check; Speaking recordings are excluded.
 
 Uploads now decode and normalize PNG/JPEG/WebP images (up to 16 million pixels), validate/decode MP3 streams with metadata removed, and validate complete PCM/IEEE-float mono/stereo WAV containers. The output must fit the configured media byte limit. Concurrent validation returns a retryable busy response. Format validation does not replace malware scanning. The backend's locked Sharp native packages and MP3 worker must remain installed in the production image; verify an upload of each supported format after deployment.

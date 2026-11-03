@@ -4,11 +4,15 @@ import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { json, transaction, type Db, type Tx } from "./db.js";
 import { admin, audit, notify, type Identity } from "./auth.js";
-import { assert, questionSchema } from "./domain.js";
+import { inflateRawSync } from "node:zlib";
+import { ApiError, assert, questionSchema } from "./domain.js";
 function testInput(data:Record<string,string>){return testSchema.parse({id:data.id,course:data.course,kind:data.kind,number:Number(data.number),version:Number(data.version),published:false,available:false,duration:150,builder:{questionIds:JSON.parse(data.questionIds??"{}"),duration:JSON.parse(data.durations??"{}")}});}
 type Row = {row:number;data:Record<string,string>;error:string};
 export function csvExport(rows:string[][]) { return "\uFEFF"+rows.map(row=>row.map(v=>`"${(/^[=+@\-\t\r]/.test(v)?"'":"")+v.replaceAll('"','""')}"`).join(",")).join("\r\n"); }
+// Declared sizes can lie, so each entry is actually inflated with a hard output cap
+// before ExcelJS sees the archive.
 function safeZip(buffer:Buffer) {
+  const limit=25*1024*1024;
   let eocd=-1;
   for(let i=buffer.length-22;i>=Math.max(0,buffer.length-65558);i--) if(buffer.readUInt32LE(i)===0x06054b50){eocd=i;break;}
   assert(eocd>=0,400,"Invalid XLSX archive");
@@ -16,18 +20,28 @@ function safeZip(buffer:Buffer) {
   assert(count<=2000,400,"Workbook contains too many files");
   for(let i=0;i<count;i++) {
     assert(offset+46<=buffer.length&&buffer.readUInt32LE(offset)===0x02014b50,400,"Invalid XLSX directory");
-    size+=buffer.readUInt32LE(offset+24);
-    assert(size<=25*1024*1024,400,"Workbook expands beyond the 25 MB limit");
+    const method=buffer.readUInt16LE(offset+10),compressed=buffer.readUInt32LE(offset+20),local=buffer.readUInt32LE(offset+42);
+    assert(local+30<=buffer.length&&buffer.readUInt32LE(local)===0x04034b50,400,"Invalid XLSX entry");
+    const start=local+30+buffer.readUInt16LE(local+26)+buffer.readUInt16LE(local+28);
+    assert(start+compressed<=buffer.length,400,"Invalid XLSX entry");
+    const data=buffer.subarray(start,start+compressed);
+    assert(method===0||method===8,400,"Unsupported XLSX compression");
+    try{size+=method===0?data.length:inflateRawSync(data,{maxOutputLength:limit-size+1}).length;}catch{throw new ApiError(400,"Workbook expands beyond the 25 MB limit or is damaged");}
+    assert(size<=limit,400,"Workbook expands beyond the 25 MB limit");
     offset+=46+buffer.readUInt16LE(offset+28)+buffer.readUInt16LE(offset+30)+buffer.readUInt16LE(offset+32);
   }
 }
 export async function parseImport(buffer:Buffer,filename:string):Promise<Record<string,string>[]> {
   assert(buffer.length<=5*1024*1024,400,"Import files must be under 5 MB");
   let rows:string[][];
-  if(filename.toLowerCase().endsWith(".csv")) rows=parse(buffer.toString("utf8").replace(/^\uFEFF/,""),{bom:true,skip_empty_lines:true,max_record_size:100000,columns:false,relax_column_count:false});
+  if(filename.toLowerCase().endsWith(".csv")) {
+    try{rows=parse(buffer.toString("utf8").replace(/^\uFEFF/,""),{bom:true,skip_empty_lines:true,max_record_size:100000,columns:false,relax_column_count:false});}
+    catch(e){throw new ApiError(400,`The CSV could not be read: ${e instanceof Error?e.message.slice(0,200):"invalid format"}. Quote any field that contains commas or quotation marks`);}
+  }
   else {
     assert(filename.toLowerCase().endsWith(".xlsx"),400,"Choose a CSV or XLSX file");safeZip(buffer);
-    const book=new ExcelJS.Workbook();await book.xlsx.load(buffer as any);
+    const book=new ExcelJS.Workbook();
+    try{await book.xlsx.load(buffer as any);}catch{throw new ApiError(400,"The workbook could not be read. Save it again as .xlsx");}
     const sheet=book.worksheets[0];assert(sheet,400,"Workbook has no worksheet");
     assert(sheet.rowCount<=1001&&sheet.columnCount<=30,400,"Import supports up to 1000 rows and 30 columns");
     rows=[];sheet.eachRow(row=>{const values:string[]=[];row.eachCell({includeEmpty:true},cell=>{assert(cell.type!==ExcelJS.ValueType.Formula,400,"Use plain values, not spreadsheet formulas");values.push(cell.text);});rows.push(values);});

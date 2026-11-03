@@ -9,10 +9,18 @@ export function publicQuestion(q: Question | Record<string, any>, includeKey = f
   const { id, skill, course, questionType, section, difficulty, title, prompt, passage, options, explanation, assetIds, published, archived, version, practiceEligible } = q;
   return { id, skill, course, questionType, section, difficulty, title, prompt, passage, options, assetIds, published, archived, version, practiceEligible, ...(includeKey ? { answer:q.answer, explanation } : {}) };
 }
-export function attemptView(a: Attempt, includeContent = false) {
+// Students receive only the open section's questions; later sections stay on the server.
+const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: any) => (snapshot.questions ?? []).filter((q: any) => snapshot.skill || (a.state === "IN_PROGRESS" && q.skill === ["Listening","Reading","Writing"][a.section]));
+export function staffAttemptView(a: Attempt) {
+  const snapshot = a.snapshot as any;
+  const { sessionKey: _, ...view } = attemptView(a);
+  return { ...view, name: snapshot.title, practiceSkill: snapshot.skill, timed: !snapshot.untimed, hiddenSeconds: Math.round(a.hiddenMs / 1000), activeSeconds: Math.round(a.activeMs / 1000), questions: (snapshot.questions ?? []).map((q: any) => publicQuestion(q, true)) };
+}
+// The snapshot is optional: summaries and heartbeat acknowledgements are built without loading the paper.
+export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt["snapshot"] }, includeContent = false) {
   const snapshot = a.snapshot as any;
   return { submittedSections:a.submittedSections, id:a.id, testId:a.testId, studentId:a.studentId, course:a.course, kind:a.kind, number:a.number, state:a.state === "IN_PROGRESS" ? "In progress" : "Submitted", remainingSeconds:Math.ceil(a.remainingMs/1000), remainingBySection:a.remainingBySection, sectionRemainingSeconds:Math.ceil(((a.remainingBySection as any)[["Listening","Reading","Writing"][a.section]!]??a.remainingMs)/1000), section:a.section, question:a.question, answers:a.answers, theme:a.theme, fontSize:a.fontSize, interruptions:a.interruptions, flagged:a.flagged, sequence:a.sequence, sessionKey:a.sessionKey,
-    ...(includeContent ? { questions:(snapshot.questions ?? []).map((q:any) => publicQuestion(q)), name:snapshot.title, practiceSkill:snapshot.skill, timed:!snapshot.untimed } : {}) };
+    ...(includeContent ? { questions:openQuestions(a, snapshot).map((q:any) => publicQuestion(q)), name:snapshot.title, practiceSkill:snapshot.skill, timed:!snapshot.untimed } : {}) };
 }
 export function resultView(result: Result & { revisions?: ScoreRevision[]; jobs?: any[] }, user: Identity) {
   const internal = user.role !== "STUDENT";
@@ -24,19 +32,24 @@ export function resultView(result: Result & { revisions?: ScoreRevision[]; jobs?
     ...(internal ? { assignedTrainerId:result.assignedTrainerId,evaluatedBy:result.evaluatedBy, reviewerId:result.reviewerId, reviewerUntil:result.reviewerUntil, version:result.version, evaluationDraft:result.evaluationDraft, originalScores:result.originalScores, revisions:result.revisions?.map(r => ({ id:r.id, section:r.section, previous:r.previous, value:r.value, actor:r.actorName, actorId:r.actorId, role:r.role, remarks:r.remarks, details:r.details, at:r.at.toISOString() })) } : {}) };
 }
 export const userView = (u: Identity, config: Config) => ({ id:u.id, name:u.name, role:u.role.toLowerCase(), email:u.role === "STUDENT" ? undefined : u.email, enabled:u.enabled, course:u.student?.course, accessActive:u.role !== "STUDENT" || (u.enabled && !!u.student && u.student.startDate <= today(config.ACCESS_TIMEZONE) && u.student.expiryDate >= today(config.ACCESS_TIMEZONE)), startDate:u.student?.startDate, expiryDate:u.student?.expiryDate });
-export async function bootstrap(db: Db, user: Identity, offset=0, limit=500) {
+export async function bootstrap(db: Db, user: Identity, offset=0, limit=500, timezone="Asia/Kolkata") {
   const isStudent = user.role === "STUDENT";
   const [students, trainers, tests, questions, results, attempts, notifications, auditEvents, setting] = await Promise.all([
     db.student.findMany({ where:isStudent ? {id:user.id} : {}, select: user.role === "ADMIN" ? {...academicSelect,contacts:true} : academicSelect, orderBy:{id:"asc"}, skip:offset,take:limit+1 }),
     isStudent ? Promise.resolve([]) : db.user.findMany({ where:{role:"TRAINER"}, select:{id:true,name:true,email:true,enabled:true},orderBy:{name:"asc"},skip:offset,take:limit+1 }),
     db.test.findMany({ where:isStudent ? {course:user.student!.course} : {},orderBy:[{course:"asc"},{number:"asc"}] }),
     user.role==="TRAINER"?Promise.resolve([]):db.question.findMany({ where:isStudent ? {course:{in:[user.student!.course,"BOTH"]},skill:{not:"Speaking"},published:true,archived:false,practiceEligible:true} : {},orderBy:{id:"asc"},skip:offset,take:limit+1 }),
-    db.result.findMany({ where:isStudent ? {studentId:user.id,course:user.student!.course} : {},include:{ revisions:!isStudent, jobs:{where:{state:"COMPLETED"},select:{state:true,output:true,model:true,rubricVersion:true}} },orderBy:{date:"desc"},skip:offset,take:limit+1 }),
-    isStudent ? db.attempt.findMany({where:{studentId:user.id,course:user.student!.course},orderBy:{createdAt:"desc"},skip:offset,take:limit+1}) : Promise.resolve([]),
+    // AI feedback is repeated only for a student's own results; staff read it on the marksheet.
+    db.result.findMany({ where:isStudent ? {studentId:user.id,course:user.student!.course} : {},include:{ revisions:!isStudent, jobs:{where:{state:"COMPLETED",...(isStudent?{}:{id:{in:[]}})},select:{state:true,output:true,model:true,rubricVersion:true}} },orderBy:{date:"desc"},skip:offset,take:limit+1 }),
+    // Attempt summaries only: the snapshot (the whole paper) is not needed for a dashboard.
+    isStudent ? db.attempt.findMany({where:{studentId:user.id,course:user.student!.course},omit:{snapshot:true},orderBy:{createdAt:"desc"},skip:offset,take:limit+1}) : Promise.resolve([]),
     db.notification.findMany({where:{userId:user.id},orderBy:{createdAt:"desc"},skip:offset,take:limit+1}),
     user.role === "ADMIN" ? db.auditLog.findMany({orderBy:{at:"desc"},skip:offset,take:limit+1}) : Promise.resolve([]),
     db.platformSetting.findUnique({where:{id:"platform"}}),
   ]);
+  // Staff always receive every pending marksheet (up to 5,000) as well as the newest results,
+  // so older pending work is never hidden behind recent completed results.
+  const pendingRows=isStudent||offset?[]:await db.result.findMany({where:{reviewStatus:{not:"Completed"},id:{notIn:results.slice(0,limit).map(r=>r.id)}},include:{revisions:true,jobs:{where:{id:{in:[]}},select:{state:true,output:true,model:true,rubricVersion:true}}},orderBy:{date:"asc"},take:5000});
   const testCounts=await db.attempt.groupBy({by:["course","testId","state"],where:{kind:{not:"PRACTICE"},...(isStudent?{studentId:user.id,course:user.student!.course}:{})},_count:true});
   const latestPractice=new Map<string,number>();for(const r of results)if(r.kind==="PRACTICE_MOCK")latestPractice.set(`${r.studentId}/${r.course}/${r.testId}`,Math.max(latestPractice.get(`${r.studentId}/${r.course}/${r.testId}`)??0,r.attemptNumber));
   const ownResults = results.filter(r => (!isStudent || resultView(r,user).visible)&&(r.kind!=="PRACTICE_MOCK"||r.attemptNumber===latestPractice.get(`${r.studentId}/${r.course}/${r.testId}`)));
@@ -46,7 +59,7 @@ export async function bootstrap(db: Db, user: Identity, offset=0, limit=500) {
     return {skill,percent:0,completed:scored.length,total:0,band:scored[0]?.[key] ?? null,description:skill === "Speaking" ? "Offline trainer assessment" : "Based on completed assessments"};
   });
   const statistics=user.role==="ADMIN"?await (async()=>{
-    const day=today("Asia/Kolkata");
+    const day=today(timezone);
     const [students,activeStudents,generalStudents,academicStudents,trainers,results,pending,ready,unlocked]=await Promise.all([
       db.student.count(),db.student.count({where:{user:{enabled:true},startDate:{lte:day},expiryDate:{gte:day}}}),
       db.student.count({where:{course:"GENERAL"}}),db.student.count({where:{course:"ACADEMIC"}}),db.user.count({where:{role:"TRAINER"}}),db.result.count(),
@@ -58,7 +71,7 @@ export async function bootstrap(db: Db, user: Identity, offset=0, limit=500) {
     hasMore:[students,trainers,questions,results,attempts,notifications,auditEvents].some(rows=>rows.length>limit),nextOffset:offset+limit,
     students:students.slice(0,limit).map((s:any) => ({id:s.id,name:s.user.name,enabled:s.user.enabled,course:s.course,startDate:s.startDate,expiryDate:s.expiryDate,trainerId:s.trainerId ?? undefined,...(user.role === "ADMIN" ? {contacts:s.contacts} : {})})),
     trainers:trainers.slice(0,limit),tests:tests.map(t => ({attempts:testCounts.filter(a=>a.course===t.course&&a.testId===t.id).reduce((sum,a)=>sum+a._count,0),completed:testCounts.filter(a=>a.course===t.course&&a.testId===t.id&&a.state==="SUBMITTED").reduce((sum,a)=>sum+a._count,0),id:t.id,course:t.course,kind:t.kind,number:t.number,published:t.published,available:t.kind === "PRACTICE_MOCK" ? t.published : t.available,duration:t.duration,sectionDurations:(t.builder as any).duration,builder:user.role==="ADMIN" ? t.builder : undefined,conversions:user.role==="ADMIN" ? t.conversions : undefined,version:t.version})),
-    questions:questions.slice(0,limit).map(q => publicQuestion(q,!isStudent)),results:results.slice(0,limit).map(r => resultView(r,user)),attempts:attempts.slice(0,limit).map(a=>attemptView(a)),progress,
+    questions:questions.slice(0,limit).map(q => publicQuestion(q,!isStudent)),results:[...results.slice(0,limit),...pendingRows].map(r => resultView(r,user)),attempts:attempts.slice(0,limit).map(a=>attemptView(a)),progress,
     practiceRecords:[],notifications:notifications.slice(0,limit).map(n=>({id:n.id,role:user.role.toLowerCase(),recipientId:user.id,title:n.title,href:n.href,read:n.read,createdAt:n.createdAt.toISOString()})),
     auditEvents:auditEvents.slice(0,limit).map(a=>({id:a.id,actorId:a.actorId,action:a.action,target:a.target,detail:JSON.stringify(a.detail),at:a.at.toISOString()})),settings:await platformSettings(db),
   };

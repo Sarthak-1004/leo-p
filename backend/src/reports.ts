@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {Prisma,type Db} from "./db.js";
 import {academicSelect,staff,type Identity} from "./auth.js";
-import {assert,course,today} from "./domain.js";
+import {assert,course,today,zonedDay} from "./domain.js";
 import {csvExport} from "./imports.js";
 import {resultView} from "./views.js";
 
@@ -12,62 +12,67 @@ export const reportQuery=z.object({
   sort:z.enum(["newest","oldest","band-desc","band-asc"]).default("newest"),
 }).strict().refine(q=>!q.from||!q.to||q.from<=q.to,"End date must follow start date");
 export type ReportQuery=z.infer<typeof reportQuery>;
-const mean=(values:number[])=>values.length?Math.round(values.reduce((a,b)=>a+b,0)/values.length*100)/100:null;
-const normalize=(v:string)=>v.trim().toLocaleLowerCase("en").replace(/\s+/g," ");
 
-export async function reports(db:Db,user:Identity,q:ReportQuery,exporting=false){
+// Aggregates run inside PostgreSQL; only the requested page (or the bounded CSV columns) reaches
+// this process, so many staff opening reports at once cannot exhaust server memory.
+// At most three reports/exports run at once, so staff analytics never take every database
+// connection away from students' exam saves; further requests wait their turn.
+let running=0;const queued:Array<()=>void>=[];
+export async function reports(db:Db,user:Identity,q:ReportQuery,exporting=false,timezone="Asia/Kolkata"){
   staff(user);
-  const dateRange=q.from||q.to?{...(q.from?{gte:new Date(`${q.from}T00:00:00+05:30`)}:{}),...(q.to?{lte:new Date(`${q.to}T23:59:59.999+05:30`)}:{})}:undefined;
-  const studentWhere:Prisma.StudentWhereInput={...(q.course?{course:q.course}:{}),...(q.studentId?{id:q.studentId}:{}),...(q.trainerId?{trainerId:q.trainerId}:{})};
-  const attemptWhere:Prisma.AttemptWhereInput={student:studentWhere,...(q.course?{course:q.course}:{}),...(q.kind?{kind:q.kind}:{}),...(q.testId?{testId:q.testId}:{}),...(dateRange?{createdAt:dateRange}:{})};
-  const where:Prisma.ResultWhereInput={...(q.course?{course:q.course}:{}),...(q.studentId?{studentId:q.studentId}:{}),...(q.kind?{kind:q.kind}:{}),...(q.testId?{testId:q.testId}:{}),...(dateRange?{date:dateRange}:{}),attempt:{student:studentWhere}};
-  // Academic-only selections: Trainer requests never fetch a contact record.
-  const students=await db.student.findMany({where:studentWhere,select:academicSelect,orderBy:{id:"asc"}});
-  const trainers=await db.user.findMany({where:{role:"TRAINER"},select:{id:true,name:true,enabled:true},orderBy:{name:"asc"}});
-  type TypeScore={module:string;questionType:string;correct:number;total:number};
-  type ReportRow=Prisma.ResultGetPayload<{include:{revisions:{select:{actorId:true;at:true}}}}>&{typeScores:TypeScore[]};
-  const filtered:ReportRow[]=[];let cursor:string|undefined;
-  // Project only scoring metadata inside PostgreSQL. Passage/prompt/essay bodies
-  // are never accumulated in the report process, even for a large history.
-  for(;;){
-    const rows=await db.result.findMany({where,orderBy:{id:"asc"},take:500,...(cursor?{cursor:{id:cursor},skip:1}:{}),include:{revisions:{select:{actorId:true,at:true},orderBy:{at:"asc"}}}});
-    if(!rows.length)break;
-    const projected=await db.$queryRaw<Array<{id:string;questions:{id:string;skill:string;questionType:string;answer:string|string[]|null;response:string|null}[]}>>(Prisma.sql`
-      SELECT a."id",jsonb_agg(jsonb_build_object('id',items.item->>'id','skill',items.item->>'skill','questionType',items.item->>'questionType',
-        'answer',CASE WHEN items.item->>'skill' IN ('Listening','Reading') THEN items.item->'answer' ELSE NULL END,
-        'response',CASE WHEN items.item->>'skill' IN ('Listening','Reading') THEN a."answers"->>((items.item->>'skill')||':'||(items.item->>'id')) ELSE NULL END)) AS questions
-      FROM "Attempt" a CROSS JOIN LATERAL jsonb_array_elements(a."snapshot"->'questions') AS items(item)
-      WHERE a."id" IN (${Prisma.join(rows.map(r=>r.id))}) GROUP BY a."id"`);
-    for(const r of rows){
-      const questions=projected.find(row=>row.id===r.id)?.questions??[];
-      if(q.module&&!questions.some(x=>x.skill===q.module)&&!(q.module==="Speaking"&&r.kind==="FLT"))continue;
-      if(q.questionType&&!questions.some(x=>x.questionType===q.questionType&&(!q.module||x.skill===q.module)))continue;
-      const scores=new Map<string,TypeScore>();
-      for(const question of questions){
-        if(!["Listening","Reading"].includes(question.skill)||(q.module&&question.skill!==q.module)||(q.questionType&&question.questionType!==q.questionType))continue;
-        const key=`${question.skill}/${question.questionType}`,score=scores.get(key)??{module:question.skill,questionType:question.questionType,correct:0,total:0};
-        const accepted=(Array.isArray(question.answer)?question.answer:[question.answer??""]).filter(key=>key.trim());
-        if(accepted.some(key=>normalize(key)===normalize(question.response??"")))score.correct++;
-        score.total++;scores.set(key,score);
-      }
-      filtered.push({...r,typeScores:[...scores.values()]});
-    }
-    if(rows.length<500)break;cursor=rows.at(-1)!.id;
+  if(running>=3)await new Promise<void>(resolve=>queued.push(resolve));else running++;
+  try{return await buildReport(db,user,q,exporting,timezone);}
+  finally{const next=queued.shift();if(next)next();else running--;}
+}
+async function buildReport(db:Db,user:Identity,q:ReportQuery,exporting:boolean,timezone:string){
+  const filters:Prisma.Sql[]=[Prisma.sql`TRUE`];
+  if(q.course)filters.push(Prisma.sql`r."course"=${q.course}::"Course"`);
+  if(q.studentId)filters.push(Prisma.sql`r."studentId"=${q.studentId}`);
+  if(q.trainerId)filters.push(Prisma.sql`s."trainerId"=${q.trainerId}`);
+  if(q.kind)filters.push(Prisma.sql`r."kind"=${q.kind}::"TestKind"`);
+  if(q.testId)filters.push(Prisma.sql`r."testId"=${q.testId}`);
+  if(q.from)filters.push(Prisma.sql`r."date">=${zonedDay(q.from,timezone).start}`);
+  if(q.to)filters.push(Prisma.sql`r."date"<=${zonedDay(q.to,timezone).end}`);
+  if(q.module)filters.push(q.module==="Speaking"?Prisma.sql`(r."kind"='FLT' OR COALESCE(r."originalScores"->'modules','[]'::jsonb) @> jsonb_build_array('Speaking'::text))`:Prisma.sql`COALESCE(r."originalScores"->'modules','["Listening","Reading","Writing"]'::jsonb) @> jsonb_build_array(${q.module}::text)`);
+  if(q.questionType)filters.push(Prisma.sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(r."originalScores"->'questionTypes','[]'::jsonb)) t(v) WHERE ${q.module?Prisma.sql`t.v=${`${q.module}/${q.questionType}`}`:Prisma.sql`substring(t.v from position('/' in t.v)+1)=${q.questionType}`})`);
+  const from=Prisma.sql`FROM "Result" r JOIN "Student" s ON s."id"=r."studentId" WHERE ${Prisma.join(filters," AND ")}`;
+  const total=(await db.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int AS n ${from}`))[0]!.n;
+  if(exporting){
+    assert(total<=50000,400,"Narrow the filters to export at most 50,000 records");
+    const rows=await db.$queryRaw<Array<{studentId:string;studentName:string;course:string;kind:string;name:string;attemptNumber:number;date:Date;listening:number|null;reading:number|null;writing:number|null;speaking:number|null;overall:number|null;reviewStatus:string;released:boolean}>>(Prisma.sql`SELECT r."studentId",u."name" AS "studentName",r."course"::text AS course,r."kind"::text AS kind,r."name",r."attemptNumber",r."date",r."listening",r."reading",r."writing",r."speaking",r."overall",r."reviewStatus",r."released" FROM "Result" r JOIN "Student" s ON s."id"=r."studentId" JOIN "User" u ON u."id"=r."studentId" WHERE ${Prisma.join(filters," AND ")} ORDER BY r."date" DESC,r."id"`);
+    return csvExport([["Student ID","Name","Course","Type","Test","Attempt","Submitted (UTC)","Listening","Reading","Writing","Speaking","Overall","Review","Released"],...rows.map(r=>[r.studentId,r.studentName,r.course,r.kind,r.name,String(r.attemptNumber),r.date.toISOString(),...[r.listening,r.reading,r.writing,r.speaking,r.overall].map(v=>v===null?"Pending":String(v)),r.reviewStatus,r.released?"Yes":"No"])]);
   }
-  const latest=new Map<string,typeof filtered[number]>();
-  for(const r of filtered){const key=r.kind==="PRACTICE_MOCK"?`${r.studentId}/${r.course}/${r.testId}`:r.id;const old=latest.get(key);if(!old||r.attemptNumber>old.attemptNumber)latest.set(key,r);}
-  const performance=[...latest.values()];
-  const moduleBands=["Listening","Reading","Writing","Speaking"].map(module=>({module,count:performance.filter(r=>r[module.toLowerCase() as "listening"]!==null).length,average:mean(performance.flatMap(r=>r[module.toLowerCase() as "listening"]===null?[]:[r[module.toLowerCase() as "listening"]!]))}));
-  const group=(key:"course"|"kind")=>[...new Set(performance.map(r=>r[key]))].map(name=>{const rows=performance.filter(r=>r[key]===name);return {name,count:rows.length,average:mean(rows.flatMap(r=>r.overall===null?[]:[r.overall]))};});
-  const types=new Map<string,{module:string;questionType:string;correct:number;total:number}>();
-  for(const r of performance)for(const score of r.typeScores){const key=`${score.module}/${score.questionType}`,old=types.get(key)??{...score,correct:0,total:0};old.correct+=score.correct;old.total+=score.total;types.set(key,old);}
-  const day=today("Asia/Kolkata"),soon=new Date(`${day}T00:00:00Z`);soon.setUTCDate(soon.getUTCDate()+7);
+  // Performance uses the latest Practice Mock attempt per student and test; every other result counts once.
+  const typeFilter=Prisma.sql`${q.module?Prisma.sql`t->>'module'=${q.module}`:Prisma.sql`TRUE`} AND ${q.questionType?Prisma.sql`t->>'questionType'=${q.questionType}`:Prisma.sql`TRUE`}`;
+  const [agg]=await db.$queryRaw<Array<{averageBand:number|null;moduleBands:{module:string;count:number;average:number|null}[]|null;byCourse:{name:string;count:number;average:number|null}[]|null;byKind:{name:string;count:number;average:number|null}[]|null;questionTypes:{module:string;questionType:string;correct:number;total:number}[]|null;pending:{id:string;pending:number}[]|null;completed:{id:string;completed:number;turnaroundHours:number|null}[]|null}>>(Prisma.sql`
+    WITH f AS (SELECT r.* ${from}),
+    perf AS (SELECT DISTINCT ON (CASE WHEN f."kind"='PRACTICE_MOCK' THEN f."studentId"||'/'||f."course"||'/'||f."testId" ELSE f."id" END) f.* FROM f ORDER BY CASE WHEN f."kind"='PRACTICE_MOCK' THEN f."studentId"||'/'||f."course"||'/'||f."testId" ELSE f."id" END,f."attemptNumber" DESC)
+    SELECT
+      (SELECT ROUND(AVG("overall")::numeric,2)::float FROM perf) AS "averageBand",
+      (SELECT json_agg(x) FROM (SELECT m AS module,count(v)::int AS count,ROUND(AVG(v)::numeric,2)::float AS average FROM perf,LATERAL (VALUES ('Listening',perf."listening"),('Reading',perf."reading"),('Writing',perf."writing"),('Speaking',perf."speaking")) mv(m,v) GROUP BY m) x) AS "moduleBands",
+      (SELECT json_agg(x) FROM (SELECT "course"::text AS name,count(*)::int AS count,ROUND(AVG("overall")::numeric,2)::float AS average FROM perf GROUP BY "course") x) AS "byCourse",
+      (SELECT json_agg(x) FROM (SELECT "kind"::text AS name,count(*)::int AS count,ROUND(AVG("overall")::numeric,2)::float AS average FROM perf GROUP BY "kind") x) AS "byKind",
+      (SELECT json_agg(x) FROM (SELECT t->>'module' AS module,t->>'questionType' AS "questionType",SUM((t->>'correct')::int)::int AS correct,SUM((t->>'total')::int)::int AS total FROM perf,jsonb_array_elements(COALESCE(perf."originalScores"->'typeScores','[]'::jsonb)) t WHERE ${typeFilter} GROUP BY 1,2) x) AS "questionTypes",
+      (SELECT json_agg(x) FROM (SELECT "assignedTrainerId" AS id,count(*)::int AS pending FROM f WHERE "reviewStatus"<>'Completed' AND "assignedTrainerId" IS NOT NULL GROUP BY 1) x) AS pending,
+      (SELECT json_agg(x) FROM (SELECT f."evaluatedBy" AS id,count(*)::int AS completed,ROUND(AVG(GREATEST(0,EXTRACT(EPOCH FROM (rv.at-f."date"))/3600))::numeric,2)::float AS "turnaroundHours" FROM f LEFT JOIN LATERAL (SELECT max("at") AS at FROM "ScoreRevision" WHERE "resultId"=f."id" AND "actorId"=f."evaluatedBy") rv ON true WHERE f."reviewStatus"='Completed' AND f."evaluatedBy" IS NOT NULL GROUP BY 1) x) AS completed`);
+  const order=q.sort==="oldest"?Prisma.sql`r."date" ASC,r."id"`:q.sort==="band-desc"?Prisma.sql`r."overall" DESC NULLS LAST,r."date" DESC`:q.sort==="band-asc"?Prisma.sql`r."overall" ASC NULLS LAST,r."date" DESC`:Prisma.sql`r."date" DESC,r."id"`;
+  const pageIds=(await db.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r."id" ${from} ORDER BY ${order} LIMIT ${q.limit} OFFSET ${(q.page-1)*q.limit}`)).map(r=>r.id);
+  const pageRows=await db.result.findMany({where:{id:{in:pageIds}}});
+  // Academic-only selections: Trainer requests never fetch a contact record.
+  const studentWhere:Prisma.StudentWhereInput={...(q.course?{course:q.course}:{}),...(q.studentId?{id:q.studentId}:{}),...(q.trainerId?{trainerId:q.trainerId}:{})};
+  const [students,trainers]=await Promise.all([db.student.findMany({where:studentWhere,select:academicSelect}),db.user.findMany({where:{role:"TRAINER"},select:{id:true,name:true,enabled:true},orderBy:{name:"asc"}})]);
+  const studentNames=new Map(students.map(s=>[s.id,s.user.name]));
+  const missing=pageRows.filter(r=>!studentNames.has(r.studentId)).map(r=>r.studentId);
+  if(missing.length)for(const u of await db.user.findMany({where:{id:{in:missing}},select:{id:true,name:true}}))studentNames.set(u.id,u.name);
+  const rows=pageIds.map(id=>pageRows.find(r=>r.id===id)!).map(r=>({...resultView(r,user),studentName:studentNames.get(r.studentId)??r.studentId}));
+  const day=today(timezone),soon=new Date(`${day}T00:00:00Z`);soon.setUTCDate(soon.getUTCDate()+7);
   const access={active:0,expired:0,disabled:0,upcoming:0,expiring:0};
   for(const s of students){if(!s.user.enabled)access.disabled++;else if(s.expiryDate<day)access.expired++;else if(s.startDate>day)access.upcoming++;else{access.active++;if(s.expiryDate<=soon.toISOString().slice(0,10))access.expiring++;}}
-  const workload=trainers.filter(t=>!q.trainerId||q.trainerId===t.id).map(t=>{const evaluated=filtered.filter(r=>r.evaluatedBy===t.id&&r.reviewStatus==="Completed");return {id:t.id,name:t.name,assigned:students.filter(s=>s.trainerId===t.id).length,pending:filtered.filter(r=>r.reviewStatus!=="Completed"&&r.assignedTrainerId===t.id).length,completed:evaluated.length,turnaroundHours:mean(evaluated.flatMap(r=>{const at=r.revisions.filter(v=>v.actorId===t.id).at(-1)?.at;return at?[Math.max(0,at.getTime()-r.date.getTime())/3600000]:[];}))};});
-  filtered.sort((a,b)=>q.sort==="oldest"?+a.date-+b.date:q.sort==="band-desc"?(b.overall??-1)-(a.overall??-1):q.sort==="band-asc"?(a.overall??10)-(b.overall??10):+b.date-+a.date);
-  const rows=filtered.slice((q.page-1)*q.limit,q.page*q.limit).map(r=>({...resultView({...r,revisions:undefined},user),studentName:students.find(s=>s.id===r.studentId)?.user.name??r.studentId}));
-  if(exporting){assert(filtered.length<=50000,400,"Narrow the filters to export at most 50,000 records");return csvExport([["Student ID","Name","Course","Type","Test","Attempt","Submitted (UTC)","Listening","Reading","Writing","Speaking","Overall","Review","Released"],...filtered.map(r=>[r.studentId,students.find(s=>s.id===r.studentId)?.user.name??r.studentId,r.course,r.kind,r.name,String(r.attemptNumber),r.date.toISOString(),...[r.listening,r.reading,r.writing,r.speaking,r.overall].map(v=>v===null?"Pending":String(v)),r.reviewStatus,r.released?"Yes":"No"])]);}
+  const assigned=new Map<string,number>();for(const s of students)if(s.trainerId)assigned.set(s.trainerId,(assigned.get(s.trainerId)??0)+1);
+  const pending=new Map((agg!.pending??[]).map(p=>[p.id,p.pending])),completed=new Map((agg!.completed??[]).map(c=>[c.id,c]));
+  const workload=trainers.filter(t=>!q.trainerId||q.trainerId===t.id).map(t=>({id:t.id,name:t.name,assigned:assigned.get(t.id)??0,pending:pending.get(t.id)??0,completed:completed.get(t.id)?.completed??0,turnaroundHours:completed.get(t.id)?.turnaroundHours??null}));
+  const moduleBands=["Listening","Reading","Writing","Speaking"].map(module=>agg!.moduleBands?.find(m=>m.module===module)??{module,count:0,average:null});
+  const attemptWhere:Prisma.AttemptWhereInput={student:studentWhere,...(q.course?{course:q.course}:{}),...(q.kind?{kind:q.kind}:{}),...(q.testId?{testId:q.testId}:{}),...(q.from||q.to?{createdAt:{...(q.from?{gte:zonedDay(q.from,timezone).start}:{}),...(q.to?{lte:zonedDay(q.to,timezone).end}:{})}}:{})};
   const [starts,submitted]=await Promise.all([db.attempt.count({where:attemptWhere}),db.attempt.count({where:{...attemptWhere,state:"SUBMITTED"}})]);
-  return {count:filtered.length,page:q.page,limit:q.limit,results:rows,summary:{starts,submitted,inProgress:starts-submitted,averageBand:mean(performance.flatMap(r=>r.overall===null?[]:[r.overall])),access},moduleBands,byCourse:group("course"),byKind:group("kind"),questionTypes:[...types.values()],workload};
+  return {count:total,page:q.page,limit:q.limit,results:rows,summary:{starts,submitted,inProgress:starts-submitted,averageBand:agg!.averageBand,access},moduleBands,byCourse:agg!.byCourse??[],byKind:agg!.byKind??[],questionTypes:agg!.questionTypes??[],workload};
 }

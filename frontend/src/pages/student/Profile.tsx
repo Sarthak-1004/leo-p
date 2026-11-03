@@ -14,7 +14,6 @@ import {
 import { Icon } from "../../components/Icon";
 import { courseName, dateLabel } from "../../utils/format";
 import { api } from "../../services/api";
-import { leaderboardService } from "../../services/mockAdapter";
 import type { LeaderboardEntry } from "../../types/domain";
 export function Profile() {
   const { course, students, results,mode } = usePreview();
@@ -119,7 +118,8 @@ export function Leaderboard() {
   useEffect(() => {
     let active = true;
     if(!settings.leaderboard)return;
-    const request = mode === "live" ? api<LeaderboardEntry[]>(`/leaderboard?period=${period}`) : leaderboardService.list(course, period);
+    // Sample rankings load only in demo mode, keeping fixture data out of the live bundle.
+    const request = mode === "live" ? api<LeaderboardEntry[]>(`/leaderboard?period=${period}`) : import("../../services/mockAdapter").then(m => m.leaderboardService.list(course, period));
     request.then((data) => {
       if (active) {setRows(data);setError("");}
     }).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoadedKey(key);});
@@ -127,7 +127,7 @@ export function Leaderboard() {
       active = false;
     };
   }, [course, period, mode,settings.leaderboard,key]);
-  if (!settings.leaderboard) return <ContentContainer><Card><EmptyState title="Leaderboard is disabled" description="Rankings are currently unavailable." /></Card></ContentContainer>;
+  if (!settings.leaderboard) return <ContentContainer><PageHeader title="Student leaderboard" /><Card><EmptyState title="Leaderboard is disabled" description="Rankings are currently unavailable." /></Card></ContentContainer>;
   return (
     <ContentContainer>
       <PageHeader

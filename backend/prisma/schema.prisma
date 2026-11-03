@@ -54,6 +54,15 @@ model User {
   notifications Notification[]
   authChallenges AuthChallenge[]
   recoveryCodes RecoveryCode[]
+  devices      TrustedDevice[]
+}
+model TrustedDevice {
+  tokenHash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  @@index([userId])
 }
 model Student {
   id         String @id
@@ -160,6 +169,8 @@ model Attempt {
   answers Json
   remainingMs Int
   activeMs Int @default(0)
+  hiddenMs Int @default(0)
+  lastHidden Boolean @default(false)
   remainingBySection Json @default("{}")
   section Int @default(0)
   question Int @default(0)
@@ -182,6 +193,8 @@ model Attempt {
   @@unique([studentId, course, testId, number])
   @@index([studentId, state])
   @@index([flagged, reviewedAt])
+  @@index([kind, course, testId, state])
+  @@index([studentId, course, createdAt])
 }
 model AttemptLog {
   id String @id @default(uuid())
@@ -228,6 +241,10 @@ model Result {
   @@index([studentId, released])
   @@index([reviewStatus])
   @@index([assignedTrainerId])
+  @@index([date])
+  @@index([course, date])
+  @@index([studentId, course, date])
+  @@index([evaluatedBy])
 }
 model ScoreRevision {
   id String @id @default(uuid())
@@ -242,6 +259,7 @@ model ScoreRevision {
   remarks String
   details Json
   at DateTime @default(now())
+  @@index([resultId])
 }
 model EvaluationJob {
   id String @id @default(uuid())
@@ -258,6 +276,7 @@ model EvaluationJob {
   createdAt DateTime @default(now())
   completedAt DateTime?
   @@index([state, availableAt])
+  @@index([createdAt])
 }
 model Notification {
   id String @id @default(uuid())
@@ -269,6 +288,7 @@ model Notification {
   read Boolean @default(false)
   createdAt DateTime @default(now())
   @@index([userId, read])
+  @@index([userId, createdAt])
 }
 model AuditLog {
   id String @id @default(uuid())

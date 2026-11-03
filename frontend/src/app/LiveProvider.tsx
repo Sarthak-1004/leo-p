@@ -3,6 +3,15 @@ import { PortalContext,type PreviewState,type PreviewValue,type SessionUser } fr
 import { api,ApiError,setCsrf } from "../services/api";
 import type { Result,TestAttempt,Question } from "../types/domain";
 import {ReauthGate} from "../components/ReauthGate";
+// A class signing in or starting a test together can briefly get "busy" (503) or a save conflict (409).
+// Neither committed anything, so retrying is safe. Exponential, jittered back-off spreads a whole
+// class out instead of everyone retrying in step (about a minute in total for sign-in).
+async function withRetry<T>(request:()=>Promise<T>,statuses:number[],tries=3):Promise<T>{
+  for(let attempt=1;;attempt++){
+    try{return await request();}
+    catch(e){if(attempt>=tries||!(e instanceof ApiError)||!statuses.includes(e.status))throw e;await new Promise(resolve=>setTimeout(resolve,Math.min(10000,1500*2**(attempt-1))+Math.random()*2000));}
+  }
+}
 const empty:PreviewState={students:[],trainers:[],tests:[],questions:[],results:[],progress:[],attempts:[],practiceRecords:[],notifications:[],auditEvents:[],settings:{institutionName:"Kanan IELTS Practice Portal",interruptionLimit:3,leaderboard:false}};
 export function LiveProvider({children}:{children:ReactNode}) {
   const [data,setData]=useState(empty);const [currentUser,setUser]=useState<SessionUser>();
@@ -25,7 +34,7 @@ export function LiveProvider({children}:{children:ReactNode}) {
     loadMore:async()=>{const epoch=sessionEpoch.current;setOperations(n=>n+1);try{const more=await api<PreviewState>(`/bootstrap?offset=${data.nextOffset??500}`);if(epoch!==sessionEpoch.current)return;setData(old=>{const next={...old,hasMore:more.hasMore,nextOffset:more.nextOffset};for(const key of ["students","trainers","questions","results","attempts","notifications","auditEvents"] as const){const values=new Map<string,unknown>();for(const item of [...old[key],...more[key]])values.set(item.id,item);(next[key] as unknown)= [...values.values()];}return next;});}catch(e){setError(e instanceof Error?e.message:"Records could not be loaded");}finally{setOperations(n=>n-1);}},
     course:currentUser?.course??"GENERAL",setCourse:()=>{},trainerId:currentUser?.role==="trainer"?currentUser.id:"",setTrainerId:()=>{},refresh,
     retry:()=>{setStatus("loading");void refresh().catch(e=>{setError(e.message);setStatus("error");});},
-    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await api<{user:SessionUser;csrfToken:string}>("/auth/login",{method:"POST",body:{role,identifier,password}});if(epoch!==sessionEpoch.current)return;if(!session.user||!session.csrfToken)throw new Error("Sign-in service is updating. Try again shortly.");await acceptSession(session);},
+    login:async(role,identifier,password)=>{const epoch=++sessionEpoch.current;setStatus("loading");const session=await withRetry(()=>api<{user:SessionUser;csrfToken:string}>("/auth/login",{method:"POST",body:{role,identifier,password}}),[503],8);if(epoch!==sessionEpoch.current)return;if(!session.user||!session.csrfToken)throw new Error("Sign-in service is updating. Try again shortly.");await acceptSession(session);},
     logout:async()=>{sessionEpoch.current++;try{await api("/auth/logout",{method:"POST"});setCsrf("");setUser(undefined);setData(empty);setAuth("anonymous");setStatus("ready");}catch(e){setError(e instanceof Error?e.message:"Sign out failed. Try again");}},
     updateStudent:s=>mutation(`/admin/students/${encodeURIComponent(s.id)}`,"PUT",{id:s.id,name:s.name,course:s.course,startDate:s.startDate,expiryDate:s.expiryDate,enabled:s.enabled,trainerId:s.trainerId??null,movePending:s.movePending??false,...(s.password?{password:s.password}:{}),...(s.contacts?{contacts:s.contacts}:{})}),
     updateTrainer:t=>mutation(`/admin/trainers/${encodeURIComponent(t.id)}`,"PUT",{...t}),
@@ -36,7 +45,7 @@ export function LiveProvider({children}:{children:ReactNode}) {
     reviseResult:(r,_actor,remarks)=>mutation(`/results/${r.id}/evaluation`,"PUT",evaluationBody(r,remarks)),
     releaseResults:async ids=>{setOperations(n=>n+1);try{const response=await api<{released:string[]}>("/results/release",{method:"POST",body:{ids}});await refresh();return response.released.length;}catch(e){setError(e instanceof Error?e.message:"Release failed");return 0;}finally{setOperations(n=>n-1);}},
     markNotificationRead:id=>mutation(`/notifications/${id}/read`,"POST"),addAudit:()=>{},addPracticeRecord:()=>{},updateAttempt:()=>{},
-    startAttempt:async test=>{try{const attempt=await api<TestAttempt>(`/tests/${test.course}/${test.id}/start`,{method:"POST"});await refresh();return attempt;}catch(e){setError(e instanceof Error?e.message:"The test could not be started");return null;}},
+    startAttempt:async test=>{try{const attempt=await withRetry(()=>api<TestAttempt>(`/tests/${test.course}/${test.id}/start`,{method:"POST"}),[409,503],6);await refresh();return attempt;}catch(e){setError(e instanceof Error?e.message:"The test could not be started");return null;}},
   };
   return <PortalContext.Provider value={value}>{children}<ReauthGate/></PortalContext.Provider>;
 }

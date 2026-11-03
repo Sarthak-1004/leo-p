@@ -6,13 +6,23 @@ export const onlineSkills = ["Listening", "Reading", "Writing"] as const;
 export const band = z.number().min(0).max(9).multipleOf(0.5);
 export const date = z.iso.date();
 export const identifier = z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9_-]+$/);
-export const password = z.string().min(12).max(128);
+const commonPasswords = ["password", "passw0rd", "qwerty", "123456", "abcdef", "letmein", "welcome", "admin", "student", "kanan", "ielts", "iloveyou"];
+// Admin-set passwords: length alone let "aaaaaaaaaaaa" through.
+export const password = z.string().min(12).max(128)
+  .refine(p => new Set(p).size >= 6, "Use at least 6 different characters")
+  .refine(p => !/^(.)\1+$/.test(p) && !/^(?:0123456789|1234567890|abcdefghij)/i.test(p), "Avoid repeated or sequential characters")
+  .refine(p => !commonPasswords.includes(p.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/\d+$/, "")), "Choose a less common password");
 export const criteria = z.object({ fluency: z.number().int().min(0).max(9), lexical: z.number().int().min(0).max(9), grammar: z.number().int().min(0).max(9), pronunciation: z.number().int().min(0).max(9) }).strict();
 export const settingsSchema = z.object({
   institutionName: z.string().trim().min(1).max(120), interruptionLimit: z.number().int().min(0).max(100), leaderboard: z.boolean(),
   supportEmail:z.union([z.email(),z.literal("")]).default(""),supportPhone:z.string().trim().max(60).default(""),supportAddress:z.string().trim().max(500).default(""),
   defaultAccessDays:z.number().int().min(1).max(3650).default(180),mediaLimitMb:z.number().int().min(1).max(20).default(20),
   autoWritingEvaluation:z.boolean().default(true),expiryReminders:z.boolean().default(true),backlogNotifications:z.boolean().default(true),
+  // An attempt open longer than this (wall clock, from start) is submitted automatically with its saved answers.
+  attemptWindowHours:z.number().int().min(1).max(168).default(12),
+  // Paid Writing AI limits: per student per day for module practice, and for the whole portal per day.
+  dailyPracticeAiLimit:z.number().int().min(0).max(100).default(5),dailyAiBudget:z.number().int().min(0).max(10000).default(300),
+  dailyPracticeLimit:z.number().int().min(1).max(1000).default(60),
 }).strict();
 export const defaultSettings = settingsSchema.parse({ institutionName: "Kanan IELTS Practice Portal", interruptionLimit: 3, leaderboard: false });
 export const roundBand = (n: number) => Math.round((n + Number.EPSILON) * 2) / 2;
@@ -45,8 +55,15 @@ export function rawBand(raw: number, module: string, track: string, tables: Conv
 }
 export class ApiError extends Error { constructor(public statusCode: number, message: string,public code?:string) { super(message); } }
 export function assert(condition: unknown, status: number, message: string): asserts condition { if (!condition) throw new ApiError(status, message); }
-export const today = (timezone: string, now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+// UTC instants for the start and end of a local calendar date in the given timezone.
+export function zonedDay(date: string, timezone: string) {
+  const noon = new Date(`${date}T12:00:00Z`);
+  const local = (zone: string) => new Date(noon.toLocaleString("en-US", { timeZone: zone })).getTime();
+  const offset = local(timezone) - local("UTC");
+  return { start: new Date(Date.parse(`${date}T00:00:00Z`) - offset), end: new Date(Date.parse(`${date}T23:59:59.999Z`) - offset) };
+}
+export const today =(timezone: string, now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 export const answerMap = z.record(z.string().max(120), z.string().max(50000)).refine(value => Object.keys(value).length <= 200, "Too many answers");
-export const heartbeatSchema = z.object({ sessionKey: z.string().uuid(), sequence: z.number().int().min(1), answers: answerMap, section: z.number().int().min(0).max(2), question: z.number().int().min(0).max(100), theme: z.enum(["standard","dark","yellow"]), fontSize: z.enum(["standard","large","extra-large"]), resumed:z.boolean().default(false),completeSection:z.boolean().default(false) }).strict();
+export const heartbeatSchema = z.object({ sessionKey: z.string().uuid(), sequence: z.number().int().min(1), answers: answerMap, section: z.number().int().min(0).max(2), question: z.number().int().min(0).max(100), theme: z.enum(["standard","dark","yellow"]), fontSize: z.enum(["standard","large","extra-large"]), resumed:z.boolean().default(false),completeSection:z.boolean().default(false),hidden:z.boolean().default(false) }).strict();
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
 export const questionSchema = z.object({ id: identifier, skill, course: z.enum(["GENERAL","ACADEMIC","BOTH"]), questionType: z.string().trim().min(1).max(100), section: z.string().trim().min(1).max(100), difficulty: z.enum(["Easy","Medium","Hard"]), title: z.string().trim().min(1).max(200), prompt: z.string().trim().min(1).max(50000), passage: z.string().max(100000).default(""), options: z.array(z.string().max(1000)).max(40), answer: z.union([z.string().max(1000), z.array(z.string().max(1000)).max(20)]), explanation: z.string().max(5000).default(""), assetIds: z.array(z.string().uuid()).max(10).default([]), published: z.boolean(), archived: z.boolean().default(false), practiceEligible: z.boolean().default(false), version: z.number().int().optional() }).strict();

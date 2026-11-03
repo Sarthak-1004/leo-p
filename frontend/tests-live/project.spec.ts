@@ -51,7 +51,9 @@ test("saved FLT answers survive reload, then Trainer review and Admin release re
   await expect(student.getByRole("combobox",{name:"Colour theme",exact:true})).toHaveValue("yellow");
   await expect(student.getByRole("combobox",{name:"Font size",exact:true})).toHaveValue("extra-large");
   const attemptId=student.url().split("/").at(-1)!;
-  await student.getByRole("button",{name:"Writing",exact:true}).click();await student.getByLabel("Task 1 response",{exact:true}).fill("Dear Manager, I am writing to suggest improvements to our local bus services.");
+  await expect(student.getByRole("button",{name:"Writing",exact:true})).toBeDisabled();
+  for(const [done,next] of [["Listening","Reading"],["Reading","Writing"]]){await student.getByRole("button",{name:`Submit ${done} section`,exact:true}).click();await student.getByRole("button",{name:"Confirm section submission",exact:true}).click();await expect(student.getByRole("button",{name:next,exact:true})).toBeEnabled();}
+  await student.getByLabel("Task 1 response",{exact:true}).fill("Dear Manager, I am writing to suggest improvements to our local bus services.");
   await student.getByRole("button",{name:"Submit test",exact:true}).click();await student.getByRole("button",{name:"Confirm submission",exact:true}).click();
   await expect(student.getByRole("heading",{name:"Test submitted",exact:true})).toBeVisible();
   await student.goto(`/student/results/${attemptId}`);await expect(student.getByRole("heading",{name:"Result not released yet",exact:true})).toBeVisible();
@@ -107,7 +109,7 @@ test("a late anonymous session response cannot undo a successful sign-in",async(
  await expect(page).toHaveURL(/student\/dashboard$/);await expect(page.locator("#main-content h1")).toBeVisible();await page.reload();await expect(page.locator("#main-content h1")).toBeVisible();await expect(page).toHaveURL(/student\/dashboard$/);
 });
 
-test("section changes wait for acknowledgement and remain locked through a lost response",async({page})=>{
+test("section submission waits for acknowledgement and stays locked through a lost response",async({page})=>{
   await login(page,"student");await page.goto("/student/practice-mocks");
   await expect(page.getByRole("heading",{name:"Practice Mock 01",exact:true})).toBeVisible();
   const resume=page.getByRole("link",{name:"Resume test",exact:true});
@@ -116,11 +118,12 @@ test("section changes wait for acknowledgement and remain locked through a lost 
   await expect(page.getByRole("heading",{name:"Practice Mock Test 01",exact:true})).toBeVisible();
   let release:()=>void=()=>{},intercepted=false;
   await page.route("**/api/attempts/*/heartbeat",async route=>{
-    if(!intercepted&&route.request().postDataJSON().section===2){await route.fetch();intercepted=true;await new Promise<void>(resolve=>{release=resolve;});await route.abort("failed");return;}
+    if(!intercepted&&route.request().postDataJSON().completeSection===true){await route.fetch();intercepted=true;await new Promise<void>(resolve=>{release=resolve;});await route.abort("failed");return;}
     await route.continue();
   });
   try{
-    await page.getByRole("button",{name:"Writing",exact:true}).click();await expect.poll(()=>intercepted).toBe(true);
+    await expect(page.getByRole("button",{name:"Writing",exact:true})).toBeDisabled();
+    await page.getByRole("button",{name:/^Submit (Listening|Reading) section$/}).click();await page.getByRole("button",{name:"Confirm section submission",exact:true}).click();await expect.poll(()=>intercepted).toBe(true);
     await expect(page.getByRole("textbox",{name:"Task 1 response",exact:true})).toHaveCount(0);await expect(page.getByRole("radio",{name:"yes",exact:true}).first()).toBeDisabled();
     release();await expect(page.getByText("Not saved. Your current answers are still on this page.",{exact:true})).toBeVisible();
     await expect(page.getByRole("radio",{name:"yes",exact:true}).first()).toBeDisabled();await page.getByRole("button",{name:"Retry save",exact:true}).click();
