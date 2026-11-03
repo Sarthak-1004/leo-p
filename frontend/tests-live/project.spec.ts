@@ -97,7 +97,7 @@ test("Writing module submission has a dedicated staff review and no offline Spea
 
 test("Admin can save an existing test structure without sending reporting metadata as mutation fields",async({page})=>{
  await login(page,"admin");await page.goto("/admin/mock-tests");await page.getByRole("button",{name:"Add Practice Mock Test",exact:true}).click();await page.getByRole("dialog").getByLabel("Test number",{exact:true}).fill("42");await page.getByRole("button",{name:"Create draft",exact:true}).click();await expect(page.getByRole("dialog")).toHaveCount(0);
- await page.goto("/admin/mock-tests/GENERAL/practice-mock-42/builder");await expect(page.getByRole("heading",{name:"Practice Mock Test 42 builder",exact:true})).toBeVisible();await page.getByRole("button",{name:"Apply draft",exact:true}).click();await expect(page.getByText("Test structure saved.",{exact:true})).toBeVisible();await page.reload();await expect(page.getByRole("heading",{name:"Practice Mock Test 42 builder",exact:true})).toBeVisible();
+ await page.goto("/admin/mock-tests/GENERAL/practice-mock-42/builder");await expect(page.getByRole("heading",{name:"Practice Mock Test 42 builder",exact:true})).toBeVisible();await page.getByRole("button",{name:"Save structure",exact:true}).click();await expect(page.getByText("Test structure saved.",{exact:true})).toBeVisible();await page.reload();await expect(page.getByRole("heading",{name:"Practice Mock Test 42 builder",exact:true})).toBeVisible();
 });
 
 test("a late anonymous session response cannot undo a successful sign-in",async({page})=>{

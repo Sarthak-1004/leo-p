@@ -481,7 +481,7 @@ export function MockBuilder() {
             ))}
           </ul>
           <div className="mt-5">
-            <Button disabled={!dirty || pending} onClick={() => void save()}>
+            <Button disabled={pending} onClick={() => void save()}>
               <Icon name="check" size={16} />
               Save structure
             </Button>

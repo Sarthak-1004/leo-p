@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { usePreview } from "../app/PreviewContext";
 import type { PreviewValue } from "../app/context";
 import { NavLink, Link, useLocation } from "react-router";
@@ -68,7 +68,7 @@ function NavItem({ entry, count, collapsed, close }: { entry: NavEntry; count?: 
     <NavLink
       to={entry.to}
       onClick={close}
-      aria-label={count ? `${entry.label} (${count})` : entry.label}
+      aria-label={entry.label}
       title={collapsed || entry.short ? entry.label : undefined}
       onPointerEnter={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
       onFocus={e => e.currentTarget.style.setProperty("--tooltip-top", `${e.currentTarget.getBoundingClientRect().top}px`)}
@@ -76,7 +76,8 @@ function NavItem({ entry, count, collapsed, close }: { entry: NavEntry; count?: 
     >
       <Icon name={entry.icon} />
       <span className="sidebar-label">{collapsed ? entry.label : entry.short ?? entry.label}</span>
-      {count && <span className="nav-count sidebar-label">({count})</span>}
+      {/* The count is supplementary; the link's accessible name stays the page name. */}
+      {count && <span className="nav-count sidebar-label" aria-hidden="true">({count})</span>}
       {collapsed && (
         <span className="nav-tooltip" role="tooltip">
           {entry.label}
@@ -89,7 +90,8 @@ function NavSection({ group, counts, close }: { group: NavGroup; counts: Partial
   const { pathname } = useLocation();
   const containsActive = group.items.some(item => pathname.startsWith(item.to));
   const [open, setOpen] = useState(true);
-  const id = `nav-group-${group.label.toLowerCase()}`;
+  // The sidebar renders in both the desktop rail and the mobile drawer, so IDs must be unique per instance.
+  const id = useId();
   return (
     <div className="nav-group">
       <button type="button" className={`nav-item nav-group-toggle ${containsActive && !open ? "has-active" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
