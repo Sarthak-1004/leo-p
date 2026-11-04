@@ -32,7 +32,7 @@
     "@fastify/helmet": "^13.0.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/rate-limit": "^11.2.1",
-    "@fastify/static": "^10.1.7",
+    "@fastify/static": "^10.1.8",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "csv-parse": "^7.0.3",
