@@ -1,4 +1,5 @@
 import {validatePracticePack,installPracticePack} from "../src/practice-pack.js";
+import {validateTestPack,installTestPack} from "../src/test-pack.js";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID,randomBytes,scryptSync } from "node:crypto";
@@ -484,6 +485,52 @@ function syntheticPracticePack() {
   return {id:"original-practice-v1",version:1,authorship:"Synthetic automated test fixture",status:"draft",questions,
     listeningScripts:[{id:"fixture-script",questionIds:questions.slice(32).map(q=>q.id),text:"Synthetic script for parser validation.",audioStatus:"not recorded"}]};
 }
+function syntheticTestPack(prefix:string,kind:"FLT"|"PRACTICE_MOCK"="FLT") {
+  const questions=Array.from({length:82},(_,i)=>{const skill=i<40?"Listening":i<80?"Reading":"Writing";return {
+    id:`${prefix}-${i}`,skill,course:"ACADEMIC",questionType:skill==="Writing"?`Task ${i-79}`:"Multiple choice",section:skill==="Writing"?`Task ${i-79}`:"Part 1",difficulty:"Medium",
+    title:`Original fixture ${i}`,prompt:"Synthetic test fixture prompt",passage:skill==="Reading"?"Synthetic passage for parser tests only. ".repeat(5):"",options:skill==="Writing"?[]:["yes","no"],
+    answer:skill==="Writing"?"":"yes",explanation:"",assetIds:[],published:false,archived:false,practiceEligible:false};});
+  return {id:`${prefix}-pack`,version:1,course:"ACADEMIC",kind,authorship:"Synthetic automated test fixture",status:"draft",durations:{Listening:30,Reading:60,Writing:60},questions,
+    listeningScripts:[{id:"fixture-script",part:"Part 1",questionIds:questions.slice(0,40).map(q=>q.id),text:"Synthetic script.",audioStatus:"not recorded"}]};
+}
+test("test pack validation keeps papers out of practice, in one course and complete",()=>{
+  const pack=syntheticTestPack("tp-validate");assert.equal(validateTestPack(pack).questions.length,82);
+  const change=(i:number,patch:object)=>({...pack,questions:pack.questions.map((q,j)=>j===i?{...q,...patch}:q)});
+  for(const bad of [change(0,{practiceEligible:true}),change(0,{published:true}),change(0,{course:"GENERAL"}),change(81,{section:"Task 1"}),change(0,{answer:"maybe"}),change(1,{id:pack.questions[0]!.id}),change(40,{passage:""})])
+    assert.throws(()=>validateTestPack(bad));
+});
+test("test pack installation fills an unpublished slot once and never replaces a live or different paper",async()=>{
+  const admin=await db.user.findUniqueOrThrow({where:{id:"admin"},include:{student:true}}),trainer=await db.user.findUniqueOrThrow({where:{id:"trainer"},include:{student:true}});
+  await db.test.create({data:{id:"mock-40",course:"ACADEMIC",kind:"FLT",number:40,title:"Full Length Test 40",available:true,builder:json({questionIds:{Listening:[],Reading:[],Writing:[],Speaking:[]},duration:{Listening:30,Reading:60,Writing:60,Speaking:0}}),conversions:json(defaultConversions)}});
+  const pack=syntheticTestPack("tp-flt");
+  await assert.rejects(()=>installTestPack(db,trainer,pack,40));
+  assert.deepEqual(await installTestPack(db,admin,pack,40),{test:"ACADEMIC/mock-40",created:82,skipped:0,published:0});
+  let slot=await db.test.findUniqueOrThrow({where:{course_id:{course:"ACADEMIC",id:"mock-40"}}});
+  assert.equal(slot.published,false);assert.equal(slot.available,true);assert.equal(slot.duration,150);assert.equal((slot.builder as any).questionIds.Listening.length,40);
+  assert.ok((await db.question.findMany({where:{id:{startsWith:"tp-flt-"}}})).every(q=>!q.published&&!q.practiceEligible));
+  assert.deepEqual(await installTestPack(db,admin,pack,40),{test:"ACADEMIC/mock-40",created:0,skipped:82,published:0});
+  await assert.rejects(()=>installTestPack(db,admin,syntheticTestPack("tp-other"),40),(e:any)=>e.statusCode===409);
+  await db.test.update({where:{course_id:{course:"ACADEMIC",id:"mock-40"}},data:{published:true}});
+  await assert.rejects(()=>installTestPack(db,admin,pack,40),(e:any)=>e.statusCode===409&&/published/.test(e.message));
+  await assert.rejects(()=>installTestPack(db,admin,syntheticTestPack("tp-missing"),39),(e:any)=>/40 FLT slots/.test(e.message));
+  assert.deepEqual(await installTestPack(db,admin,syntheticTestPack("tp-mock","PRACTICE_MOCK"),91),{test:"ACADEMIC/practice-mock-91",created:82,skipped:0,published:0});
+  slot=await db.test.findUniqueOrThrow({where:{course_id:{course:"ACADEMIC",id:"practice-mock-91"}}});assert.equal(slot.kind,"PRACTICE_MOCK");assert.equal(slot.published,false);
+});
+test("a shared Listening paper and its media are installed once for both courses",async()=>{
+  const admin=await db.user.findUniqueOrThrow({where:{id:"admin"},include:{student:true}});
+  const audio=await db.asset.create({data:{key:`assessment/${randomUUID()}`,filename:"part-1.mp3",contentType:"audio/mpeg",size:1,uploadedBy:"admin"}});
+  const image=await db.asset.create({data:{key:`assessment/${randomUUID()}`,filename:"chart.png",contentType:"image/png",size:1,uploadedBy:"admin"}});
+  const shared=(course:"GENERAL"|"ACADEMIC",prefix:string)=>{const p=syntheticTestPack(prefix,"PRACTICE_MOCK");return {...p,course,listeningId:"tp-shared",
+    questions:p.questions.map((q,i)=>i<40?{...q,id:`tp-shared-${i}`,course:"BOTH"}:{...q,course}),listeningScripts:[{...p.listeningScripts[0]!,questionIds:Array.from({length:40},(_,i)=>`tp-shared-${i}`)}],
+    media:[{file:"audio/tp-shared/part-1.mp3",questionIds:Array.from({length:40},(_,i)=>`tp-shared-${i}`)},{file:`charts/${prefix}.png`,questionIds:[`${prefix}-80`]}]};};
+  const general=shared("GENERAL","tp-sg"),assets={...Object.fromEntries(general.media[0]!.questionIds.map(id=>[id,[audio.id]])),"tp-sg-80":[image.id]};
+  await assert.rejects(()=>installTestPack(db,admin,general,92,{"tp-shared-0":[image.id]}),(e:any)=>/attach audio/.test(e.message));
+  assert.deepEqual(await installTestPack(db,admin,general,92,assets),{test:"GENERAL/practice-mock-92",created:82,skipped:0,published:0});
+  assert.deepEqual((await db.question.findUniqueOrThrow({where:{id:"tp-shared-0"}})).assetIds,[audio.id]);assert.deepEqual((await db.question.findUniqueOrThrow({where:{id:"tp-sg-80"}})).assetIds,[image.id]);
+  assert.deepEqual(await installTestPack(db,admin,shared("ACADEMIC","tp-sa"),92),{test:"ACADEMIC/practice-mock-92",created:42,skipped:40,published:0});
+  assert.throws(()=>validateTestPack({...general,media:[{file:"../secret.mp3",questionIds:["tp-shared-0"]}]}));
+  assert.throws(()=>validateTestPack({...general,media:[{file:"a.mp3",questionIds:["not-in-pack"]}]}));
+});
 test("test questions stay out of module practice, which reveals answer keys",async()=>{
   const id=`separation-${randomUUID().slice(0,8)}`;
   const saved=await call("admin","PUT",`/api/admin/questions/${id}`,{id,skill:"Reading",course:"GENERAL",questionType:"Matching",section:"Passage 1",difficulty:"Medium",title:"t",prompt:"p",passage:"x",options:[],answer:"k",published:true});
