@@ -24,6 +24,8 @@ export const settingsSchema = z.object({
   dailyPracticeAiLimit:z.number().int().min(0).max(100).default(5),dailyAiBudget:z.number().int().min(0).max(10000).default(300),
   dailyPracticeLimit:z.number().int().min(1).max(1000).default(60),
 }).strict();
+// Full Length Tests per course (client decision, 16 Nov 2026). Slots are seeded as unpublished drafts.
+export const FLT_COUNT = 52;
 export const defaultSettings = settingsSchema.parse({ institutionName: "Kanan IELTS Practice Portal", interruptionLimit: 3, leaderboard: false });
 export const roundBand = (n: number) => Math.round((n + Number.EPSILON) * 2) / 2;
 export function overall(scores: { listening: number | null; reading: number | null; writing: number | null; speaking: number | null }): number | null {

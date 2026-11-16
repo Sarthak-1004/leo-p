@@ -50,7 +50,7 @@ export function MockTests({ practice = false }: { practice?: boolean }) {
   });
   const pagination=usePagination(filtered,8);
   return <ContentContainer>
-    <PageHeader title={practice ? "Practice Mock Tests" : "Full Length Tests"} description={practice ? "Three skills. Two attempts per test. Results after scoring." : "One attempt per test. Results released by Admin."} actions={<Badge>{courseName(course)}{!practice && " · 40 tests"}</Badge>} />
+    <PageHeader title={practice ? "Practice Mock Tests" : "Full Length Tests"} description={practice ? "Three skills. Two attempts per test. Results after scoring." : "One attempt per test. Results released by Admin."} actions={<Badge>{courseName(course)}{!practice && " · 52 tests"}</Badge>} />
     <div className="actions"><LinkButton secondary to={practice ? "/student/mock-tests" : "/student/practice-mocks"}>{practice ? "Full Length Tests" : "Practice Mock Tests"}</LinkButton></div>
     <Tabs options={["All", "Available", "In progress", "Locked", "Completed"]} value={filter} onChange={value=>{setFilter(value);pagination.setPage(1);}} label="Test status" />
     <p className="muted text-xs">{practice ? "Published practice mocks need no Admin unlock. Sample catalogue; final test count is awaiting confirmation." : "Availability applies to all active students in your course. Speaking is conducted offline by your trainer."}</p>

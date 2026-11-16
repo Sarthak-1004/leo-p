@@ -23,7 +23,7 @@ Trainer assignment routes evaluations, notifications, and workload; it does **no
 1. Each student belongs to exactly one course: IELTS GENERAL or IELTS ACADEMIC. Only Admin can reassign that course. The other course is locked where shown.
 2. Access requires an enabled account and a valid start/expiry period. Expired, disabled, and not-yet-active students cannot use protected functions. Historical results are not viewable after expiry by default.
 3. Module practice and published Practice Mock Tests need no Admin availability unlock during active access.
-4. Each course contains exactly 40 Full Length Tests (FLTs). Publication and course-level availability are separate, and General/Academic controls are independent.
+4. Each course contains exactly 52 Full Length Tests (FLTs; increased from 40 by client decision on 16 November 2026). Publication and course-level availability are separate, and General/Academic controls are independent.
 5. Never create per-student FLT permissions, credits, extra-attempt grants, or exceptions. Attempts are activity records, not access entitlements.
 6. Practice Mock Tests allow two attempts per test; FLTs allow one. An attempt counts when started. Resuming the same attempt does not consume another attempt.
 7. Digital Speaking is disabled. Students cannot open, record, or submit Speaking practice/tests. Speaking takes place offline; Trainer/Admin enters marks. No Speaking recording, transcript, or AI evaluation is in scope.
@@ -180,7 +180,7 @@ The SOW delivery phases are discovery/design; core platform; practice/tests; eva
 ## Acceptance scenarios
 
 1. Active students access published practice/Practice Mocks only for their single course; FLT availability is independently course-level and publication-gated.
-2. Exactly 40 FLTs exist per course. No UI/API/data model grants individual FLT permission or extra attempts.
+2. Exactly 52 FLTs exist per course. No UI/API/data model grants individual FLT permission or extra attempts.
 3. Backend start transactions enforce two Practice Mock attempts and one FLT attempt even under simultaneous requests; resume preserves the same attempt.
 4. Speaking routes cannot record/submit; offline content is staff-only; saved Speaking criteria/date/remarks recalculate the correct band.
 5. Unreleased FLT scores/feedback cannot be retrieved by students through any summary, direct URL or request. Practice scores need no release.

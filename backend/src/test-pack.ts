@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "./db.js";
 import { json, transaction } from "./db.js";
-import { questionSchema, assert, course, identifier } from "./domain.js";
+import { questionSchema, assert, course, identifier, FLT_COUNT } from "./domain.js";
 import { admin, audit, type Identity } from "./auth.js";
 import { saveTestRecord } from "./content.js";
 
@@ -45,7 +45,7 @@ export function validateTestPack(value:unknown) {
 // assets: uploaded asset IDs per question ID, attached only to questions this install creates.
 export async function installTestPack(db:Db,actor:Identity,value:unknown,number:number,assets:Record<string,string[]>={}) {
   admin(actor);assert(actor.enabled,403,"Enabled Admin access required");const pack=validateTestPack(value);
-  assert(Number.isInteger(number)&&number>=1&&(pack.kind!=="FLT"||number<=40),400,"Choose a valid slot number");
+  assert(Number.isInteger(number)&&number>=1&&(pack.kind!=="FLT"||number<=FLT_COUNT),400,"Choose a valid slot number");
   const id=slotId(pack.kind,number);
   return transaction(db,async tx=>{
     const current=await tx.user.findUnique({where:{id:actor.id}});

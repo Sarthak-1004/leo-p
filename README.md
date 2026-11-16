@@ -31,7 +31,7 @@ npm run db:migrate
 npm --prefix backend run setup
 ```
 
-Setup asks for the initial Admin ID and a masked password. It creates only a secure password hash and 40 draft FLT slots per course. No demo students/results or ready-made tests are inserted. There is no default Admin password. The migrations were applied successfully to the local development database during implementation; first-Admin setup remains for the account owner to run.
+Setup asks for the initial Admin ID and a masked password. It creates only a secure password hash and 52 draft FLT slots per course. No demo students/results or ready-made tests are inserted. There is no default Admin password. The migrations were applied successfully to the local development database during implementation; first-Admin setup remains for the account owner to run.
 
 The template's local DATABASE_URL matches the development runner. Keep real keys/passwords out of Git. Start the two application processes in separate terminals:
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { transaction, json, type Db, type Tx } from "./db.js";
 import { admin, audit, notify, type Identity } from "./auth.js";
-import { assert, course, identifier, questionSchema, validateConversions, defaultConversions } from "./domain.js";
+import { assert, course, identifier, questionSchema, validateConversions, defaultConversions, FLT_COUNT } from "./domain.js";
 const sectionIds=z.object({Listening:z.array(identifier).max(40),Reading:z.array(identifier).max(40),Writing:z.array(identifier).max(2),Speaking:z.array(identifier).max(0).default([])}).strict();
 const durations=z.object({Listening:z.number().int().min(1).max(90),Reading:z.number().int().min(1).max(120),Writing:z.number().int().min(1).max(120),Speaking:z.literal(0).default(0)}).strict();
 export const testSchema=z.object({id:identifier,course,kind:z.enum(["FLT","PRACTICE_MOCK"]),number:z.number().int().min(1),published:z.boolean(),available:z.boolean(),duration:z.number().int().positive().max(330),builder:z.object({questionIds:sectionIds,duration:durations}).strict(),version:z.number().int().positive(),conversions:z.unknown().optional()}).strict();
@@ -33,7 +33,7 @@ export async function saveTestRecord(tx:Db|Tx,user:Identity,input:z.infer<typeof
   admin(user);
     const old=await tx.test.findUnique({where:{course_id:{course:input.course,id:input.id}}});
     assert(!old||old.version===input.version,409,"Test changed. Reload before saving");
-    assert(input.kind!=="FLT"||(input.number<=40&&!!old&&old.kind==="FLT"&&old.number===input.number),400,"Use the existing 40 FLT slots for this course");
+    assert(input.kind!=="FLT"||(input.number<=FLT_COUNT&&!!old&&old.kind==="FLT"&&old.number===input.number),400,`Use the existing ${FLT_COUNT} FLT slots for this course`);
     assert(!old||old.kind===input.kind,400,"Test type cannot be changed");
     const all=Object.values(input.builder.questionIds).flat();
     assert(new Set(all).size===all.length,400,"A question cannot appear twice in a test");

@@ -39,7 +39,7 @@ frontend/src/
 
 Pages consume domain contracts rather than importing production secrets or assuming fixture availability equals permission. Keep Student, Trainer and Admin API response shapes separate. A client-side route guard remains a usability aid, never a security boundary. Do not expose the existing all-data fixture adapter in production.
 
-Retain course-qualified test identifiers; distinguish `Practice`, `Practice Mock Test`, and `Full Length Test` in domain logic, history, catalogs and release. A legacy internal `mock` filename/route may remain for compatibility, but labels and rules must distinguish the two full-test types. Exactly 40 FLTs exist per course; sample Practice Mock fixtures do not settle the unconfirmed production count.
+Retain course-qualified test identifiers; distinguish `Practice`, `Practice Mock Test`, and `Full Length Test` in domain logic, history, catalogs and release. A legacy internal `mock` filename/route may remain for compatibility, but labels and rules must distinguish the two full-test types. Exactly 52 FLTs exist per course (FLT_COUNT in backend/src/domain.ts); sample Practice Mock fixtures do not settle the unconfirmed production count.
 
 Do not implement browser microphone capture, Speaking submissions, transcripts or Speaking AI. Speaking question content remains staff/offline material. Trainer grade entry is distinct from an online student assessment section.
 

@@ -131,7 +131,7 @@ export function Dashboard() {
       <section>
         <SectionTitle
           title="Full Length Tests"
-          detail={<Link to="/student/mock-tests">View all 40 tests →</Link>}
+          detail={<Link to="/student/mock-tests">View all 52 tests →</Link>}
         />
         <p className="muted text-xs mb-4">
           {available.length} available · {history.filter(r=>r.kind === "FLT").length} completed

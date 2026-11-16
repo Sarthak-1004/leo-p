@@ -1,6 +1,6 @@
 # Portal implementation status - 27 October 2026
 
-The connected application is implemented in the existing React frontend and Fastify/PostgreSQL backend. Real papers, question entry, audio, task images and catalog population are deferred at the user's request. The real catalog is not filled with test fixtures; first setup creates only the 40 draft FLT slots per course.
+The connected application is implemented in the existing React frontend and Fastify/PostgreSQL backend. Real papers, question entry, audio, task images and catalog population are deferred at the user's request. The real catalog is not filled with test fixtures; first setup creates only the 52 draft FLT slots per course.
 
 | Area | Implemented application behavior |
 | --- | --- |

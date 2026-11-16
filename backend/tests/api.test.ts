@@ -512,7 +512,7 @@ test("test pack installation fills an unpublished slot once and never replaces a
   await assert.rejects(()=>installTestPack(db,admin,syntheticTestPack("tp-other"),40),(e:any)=>e.statusCode===409);
   await db.test.update({where:{course_id:{course:"ACADEMIC",id:"mock-40"}},data:{published:true}});
   await assert.rejects(()=>installTestPack(db,admin,pack,40),(e:any)=>e.statusCode===409&&/published/.test(e.message));
-  await assert.rejects(()=>installTestPack(db,admin,syntheticTestPack("tp-missing"),39),(e:any)=>/40 FLT slots/.test(e.message));
+  await assert.rejects(()=>installTestPack(db,admin,syntheticTestPack("tp-missing"),39),(e:any)=>/52 FLT slots/.test(e.message));
   assert.deepEqual(await installTestPack(db,admin,syntheticTestPack("tp-mock","PRACTICE_MOCK"),91),{test:"ACADEMIC/practice-mock-91",created:82,skipped:0,published:0});
   slot=await db.test.findUniqueOrThrow({where:{course_id:{course:"ACADEMIC",id:"practice-mock-91"}}});assert.equal(slot.kind,"PRACTICE_MOCK");assert.equal(slot.published,false);
 });
