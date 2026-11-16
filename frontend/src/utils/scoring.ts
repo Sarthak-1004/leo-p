@@ -31,12 +31,11 @@ export function isResultVisible(result: Result): boolean {
 export function canRelease(result: Result): boolean {
   return result.kind === "FLT" && !result.released && result.listening !== null && result.reading !== null && result.writing !== null && result.reviewStatus === "Completed";
 }
-// SOW A28.1 defaults. Lower raw scores require an Admin-configured table;
-// returning null avoids inventing bands absent from the supplied scope.
+// SOW A28.1 rows plus the low-score extension the client approved on 16 Nov 2026 (not official IELTS figures).
 export const conversionTables = {
-  Listening: [[39,9],[37,8.5],[35,8],[32,7.5],[30,7],[26,6.5],[23,6],[18,5.5],[16,5],[13,4.5],[10,4]],
-  AcademicReading: [[39,9],[37,8.5],[35,8],[33,7.5],[30,7],[27,6.5],[23,6],[19,5.5],[15,5],[13,4.5],[10,4]],
-  GeneralReading: [[40,9],[39,8.5],[37,8],[36,7.5],[34,7],[32,6.5],[30,6],[27,5.5],[23,5],[19,4.5],[15,4],[12,3.5],[9,3]],
+  Listening: [[39,9],[37,8.5],[35,8],[32,7.5],[30,7],[26,6.5],[23,6],[18,5.5],[16,5],[13,4.5],[10,4],[8,3.5],[6,3],[4,2.5],[3,2],[1,1],[0,0]],
+  AcademicReading: [[39,9],[37,8.5],[35,8],[33,7.5],[30,7],[27,6.5],[23,6],[19,5.5],[15,5],[13,4.5],[10,4],[8,3.5],[6,3],[4,2.5],[3,2],[1,1],[0,0]],
+  GeneralReading: [[40,9],[39,8.5],[37,8],[36,7.5],[34,7],[32,6.5],[30,6],[27,5.5],[23,5],[19,4.5],[15,4],[12,3.5],[9,3],[6,2.5],[3,2],[1,1],[0,0]],
 } as const;
 export function rawToBand(raw: number, skill: "Listening" | "Reading", course: Course): number | null {
   if (!Number.isInteger(raw) || raw < 0 || raw > 40) throw new RangeError("Raw score must be 0 to 40");

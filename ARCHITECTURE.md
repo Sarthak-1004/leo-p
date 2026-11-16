@@ -140,7 +140,7 @@ Writing submissions are durably saved before AI processing. Use idempotent versi
 
 Pure band calculations follow PRD.md/SOW A28.1: course-specific Reading tables; common Listening table; four equal Writing criteria per task, Task 2 weighted twice; four integer Speaking criteria from 0-9; half-band rounding at .25/.75; four-skill average or labelled three-skill FLT average while Speaking is pending. Practice Mock overall is a three-skill practice result. Missing required L/R/W scores produce pending, not zero or a reduced average.
 
-The SOW table omits raw 0-9 for Listening/Academic Reading and raw 0-8 for General Reading. Return an unconfigured/pending conversion until an approved table is supplied. Do not interpolate undocumented bands. Admin changes require full-range non-overlapping table validation, a new version and audit; historical results retain their applicable version.
+The SOW table omits raw 0-9 for Listening/Academic Reading and raw 0-8 for General Reading; the client approved the low-score extension recorded in PRD.md on 16 Nov 2026, and migration 202611160013 completes saved tables that still ended at the old minimum. Do not interpolate any other bands. Admin changes require full-range non-overlapping table validation, a new version and audit; historical results retain their applicable version.
 
 Score changes require remarks, validate range/step, append previous/new value plus actor/time/source, recalculate final scores and retain original automatic/AI evaluations. Use optimistic version checks and a visible reviewer-presence mechanism so concurrent staff edits do not silently overwrite each other.
 

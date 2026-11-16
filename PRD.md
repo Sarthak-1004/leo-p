@@ -118,10 +118,14 @@ These are the supplied portal defaults, adjustable per test by Admin with versio
 | 5.0 | 16-17 | 15-18 | 23-26 |
 | 4.5 | 13-15 | 13-14 | 19-22 |
 | 4.0 | 10-12 | 10-12 | 15-18 |
-| 3.5 | Not supplied | Not supplied | 12-14 |
-| 3.0 | Not supplied | Not supplied | 9-11 |
+| 3.5 | 8-9 | 8-9 | 12-14 |
+| 3.0 | 6-7 | 6-7 | 9-11 |
+| 2.5 | 4-5 | 4-5 | 6-8 |
+| 2.0 | 3 | 3 | 3-5 |
+| 1.0 | 1-2 | 1-2 | 1-2 |
+| 0 | 0 | 0 | 0 |
 
-The SOW delegates scores below the lowest supplied rows to Admin-maintained tables without defining the mapping. Do not invent a conversion for Listening/Academic Reading raw 0-9 or General Reading raw 0-8. Full-range validated tables are required before production scoring. Module practice displays raw score and an estimated band only where the completed set supports it.
+The SOW delegated scores below its lowest rows to Admin-maintained tables. Client decision (16 Nov 2026): use the common IELTS prep-provider extension shown above for Listening/Academic Reading raw 0-9 and General Reading raw 0-8. IELTS publishes no official bands at this level, so these are institution-approved values, not official IELTS figures. Admin can still edit each test's table; edits keep full-range validation. Module practice displays raw score and an estimated band only where the completed set supports it.
 
 ### Calculation rules
 

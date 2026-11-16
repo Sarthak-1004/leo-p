@@ -33,7 +33,7 @@
 - FLTs can be released with Speaking pending when L/R/W are complete; label Overall (3 skills) - Speaking pending. Recalculate/notify after Speaking is entered. Do not treat missing L/R/W as zero.
 - Trainer assignment routes workload, not access. Any Trainer can evaluate any student's academic record, but cannot manage accounts/access or release results.
 - Every changed Trainer/Admin score requires remarks and preserved previous/original values, actor and timestamp. Speaking criteria are whole numbers 0-9; apply PRD half-band calculation rules.
-- Never invent missing low raw-score conversions. The SOW leaves Listening/Academic Reading 0-9 and General Reading 0-8 to Admin-configured tables.
+- Low raw-score conversions follow the client decision of 16 Nov 2026: below the official IELTS rows, Listening/Academic Reading use 8-9 3.5, 6-7 3.0, 4-5 2.5, 3 2.0, 1-2 1.0, 0 0; General Reading uses 6-8 2.5, 3-5 2.0, 1-2 1.0, 0 0. These are the common prep-provider extension, not official IELTS figures. Do not invent any other values; Admin may still edit per-test tables.
 - Timers count only server-confirmed connected time; interruptions stop time and resume restores it. No manual Pause. Flag when interruptions exceed the default/configured limit of 3.
 - Test theme/font settings apply only to Practice Mocks/FLTs, persist with the attempt and must survive resume.
 

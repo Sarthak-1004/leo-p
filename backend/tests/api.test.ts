@@ -667,3 +667,19 @@ test("the restricted runtime role can work normally but cannot alter history or 
     }finally{await runtime.end();}
   }finally{await client.query(`REASSIGN OWNED BY portal_runtime TO test_runner; DROP OWNED BY portal_runtime; DROP ROLE IF EXISTS portal_runtime`).catch(()=>{});await client.end();}
 });
+test("low raw scores use the client-approved band extension, and saved tables are completed only if unedited",async()=>{
+  const {rawBand}=await import("../src/domain.js");
+  const band=(raw:number,module:string,track:string)=>rawBand(raw,module,track,defaultConversions as unknown as Parameters<typeof rawBand>[3],40);
+  assert.deepEqual([9,8,7,6,5,4,3,2,1,0].map(r=>band(r,"Listening","GENERAL")),[3.5,3.5,3,3,2.5,2.5,2,1,1,0]);
+  assert.deepEqual([9,8,7,6,5,4,3,2,1,0].map(r=>band(r,"Reading","ACADEMIC")),[3.5,3.5,3,3,2.5,2.5,2,1,1,0]);
+  assert.deepEqual([11,9,8,6,5,3,2,1,0].map(r=>band(r,"Reading","GENERAL")),[3,3,2.5,2.5,2,2,1,1,0]);
+  assert.equal(band(10,"Listening","GENERAL"),4);assert.equal(band(15,"Reading","GENERAL"),4);
+  const old={Listening:defaultConversions.Listening.slice(0,11),AcademicReading:defaultConversions.AcademicReading.slice(0,11),GeneralReading:defaultConversions.GeneralReading.slice(0,13)};
+  const custom={...old,Listening:[[30,7],[10,4],[5,2]]};
+  for(const [id,conversions] of [["low-band-old",old],["low-band-custom",custom]] as const)await db.test.create({data:{id,course:"ACADEMIC",kind:"PRACTICE_MOCK",number:id==="low-band-old"?93:94,title:id,builder:json({questionIds:{Listening:[],Reading:[],Writing:[],Speaking:[]},duration:{Listening:30,Reading:60,Writing:60,Speaking:0}}),conversions:json(conversions)}});
+  const sql=readFileSync("prisma/migrations/202611160013_low_band_tables/migration.sql","utf8").split(/;\s*\n/).filter(s=>s.replace(/--.*$/gm,"").trim());
+  for(let run=0;run<2;run++)for(const statement of sql)await db.$executeRawUnsafe(statement);
+  const get=async(id:string)=>(await db.test.findUniqueOrThrow({where:{course_id:{course:"ACADEMIC",id}}})).conversions as any;
+  assert.deepEqual(await get("low-band-old"),defaultConversions,"rerunning the update is harmless");
+  const kept=await get("low-band-custom");assert.deepEqual(kept.Listening,[[30,7],[10,4],[5,2]]);assert.deepEqual(kept.GeneralReading,defaultConversions.GeneralReading);
+});
