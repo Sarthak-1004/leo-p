@@ -71,7 +71,7 @@ test("transport request limiting covers anonymous requests and does not trust fo
   const first=await app.inject({url:"/api/bootstrap"});
   const forged=await app.inject({url:"/api/bootstrap",headers:{"x-forwarded-for":"198.51.100.250","x-real-ip":"198.51.100.251"}});
   assert.equal(first.statusCode,401);assert.equal(forged.statusCode,401);
-  assert.equal(Number(first.headers["x-ratelimit-limit"]),30000);
+  assert.equal(Number(first.headers["x-ratelimit-limit"]),120000);
   assert.equal(Number(forged.headers["x-ratelimit-remaining"]),Number(first.headers["x-ratelimit-remaining"])-1);
   const healthy=await app.inject({url:"/api/health"});assert.equal(healthy.statusCode,200);
   assert.equal(Number(healthy.headers["x-ratelimit-remaining"]),Number(forged.headers["x-ratelimit-remaining"])-1);
@@ -682,4 +682,20 @@ test("low raw scores use the client-approved band extension, and saved tables ar
   const get=async(id:string)=>(await db.test.findUniqueOrThrow({where:{course_id:{course:"ACADEMIC",id}}})).conversions as any;
   assert.deepEqual(await get("low-band-old"),defaultConversions,"rerunning the update is harmless");
   const kept=await get("low-band-custom");assert.deepEqual(kept.Listening,[[30,7],[10,4],[5,2]]);assert.deepEqual(kept.GeneralReading,defaultConversions.GeneralReading);
+});
+test("an attempt stores and sends each Reading passage once, and older snapshots still read back",async()=>{
+  const {packSnapshotQuestions,snapshotQuestions}=await import("../src/domain.js");
+  const s=await freshStudent();const f=await fixture("FLT");const text="Shared passage for this fixture. ".repeat(20);
+  await db.question.updateMany({where:{id:{in:f.questions.filter(q=>q.skill==="Reading").map(q=>q.id)}},data:{passage:text}});
+  let a=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();assert.equal(a.passages,undefined,"Listening has no passages");
+  const stored=(await db.attempt.findUniqueOrThrow({where:{id:a.id}})).snapshot as any;
+  assert.deepEqual(stored.passages,[text]);assert.ok(stored.questions.filter((q:any)=>q.skill==="Reading").every((q:any)=>q.passage===""&&q.passageRef===0));
+  assert.equal(JSON.stringify(stored).split(text).length-1,1,"the passage is stored once");
+  a=(await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a),completeSection:true})).json().attempt;
+  assert.deepEqual(a.passages,{0:text});assert.ok(a.questions.length===40&&a.questions.every((q:any)=>q.passage===""&&q.passageRef===0));
+  const resumed=(await call(s,"GET",`/api/attempts/${a.id}`)).json();assert.deepEqual(resumed.passages,{0:text});
+  const staff=(await call("trainer","GET",`/api/attempts/${a.id}`)).json();assert.ok(staff.questions.filter((q:any)=>q.skill==="Reading").every((q:any)=>q.passage===text));
+  const old={questions:[{id:"x",skill:"Reading",passage:"inline"}]};assert.equal(snapshotQuestions(old)[0].passage,"inline");
+  const packed=packSnapshotQuestions([{id:"a",passage:"P1"},{id:"b",passage:"P2"},{id:"c",passage:"P1"},{id:"d",passage:""}]);
+  assert.deepEqual(packed.passages,["P1","P2"]);assert.deepEqual(snapshotQuestions(packed).map((q:any)=>q.passage),["P1","P2","P1",""]);
 });

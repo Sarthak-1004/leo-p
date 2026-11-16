@@ -31,6 +31,7 @@ export interface MockTest {
 export interface Question {
   version?: number;
   passage?: string;
+  passageRef?: number;
   assetIds?: string[];
   practiceEligible?: boolean;
   archived?: boolean;
@@ -112,6 +113,7 @@ export interface TestAttempt {
   submittedSections?: string[];
   flagged?: boolean;
   questions?: Question[];
+  passages?: Record<string, string>;
   sequence?: number;
   sessionKey?: string;
   name?: string;

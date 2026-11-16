@@ -1,0 +1,33 @@
+name: Uptime check
+
+# Calls the live portal's health endpoint (which also queries the database) every 15 minutes.
+# A failed run notifies the repository owner through GitHub's workflow-failure email.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      PORTAL_URL: ${{ vars.PORTAL_URL || 'https://leo-p.vercel.app' }}
+    steps:
+      - name: Portal and database respond
+        run: |
+          # A sleeping server can take about a minute to wake, so allow slow first answers and retries.
+          for attempt in 1 2 3; do
+            body=$(curl --silent --show-error --max-time 90 "$PORTAL_URL/api/health" || true)
+            echo "attempt $attempt: $body"
+            if echo "$body" | grep -q '"status":"ok"'; then exit 0; fi
+            sleep 30
+          done
+          echo "::error::The portal did not report a healthy status at $PORTAL_URL"
+          exit 1

@@ -56,6 +56,14 @@ export function rawBand(raw: number, module: string, track: string, tables: Conv
   const name = module === "Listening" ? "Listening" : track === "GENERAL" ? "GeneralReading" : "AcademicReading";
   return tables[name]?.find(([minimum]) => raw >= minimum)?.[1] ?? null;
 }
+// An attempt's frozen paper keeps each Reading passage once; its questions point to it by index.
+// Papers frozen before this change carry the passage on every question and read back unchanged.
+export function packSnapshotQuestions(questions: any[]) {
+  const passages: string[] = [];
+  const packed = questions.map(q => { if (!q?.passage) return q; let ref = passages.indexOf(q.passage); if (ref < 0) ref = passages.push(q.passage) - 1; return { ...q, passage: "", passageRef: ref }; });
+  return { questions: packed, passages };
+}
+export const snapshotQuestions = (snapshot: any): any[] => (snapshot?.questions ?? []).map((q: any) => q.passageRef === undefined ? q : { ...q, passage: snapshot.passages?.[q.passageRef] ?? "" });
 export class ApiError extends Error { constructor(public statusCode: number, message: string,public code?:string) { super(message); } }
 export function assert(condition: unknown, status: number, message: string): asserts condition { if (!condition) throw new ApiError(status, message); }
 // UTC instants for the start and end of a local calendar date in the given timezone.

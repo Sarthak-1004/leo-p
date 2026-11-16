@@ -15,6 +15,7 @@ Tested on 3 November 2026 with 1,200 students, 100 staff and a year of history (
 | `DATABASE_POOL_SIZE` | 20 | Connections per API instance. Keep the total across instances, plus migrations and backups, below the database plan's connection limit. |
 | `HASH_CONCURRENCY` | cores − 1, between 2 and 4 | Parallel password checks, about 32 MB each. Raise it on larger servers to speed up whole-class sign-in. |
 | `UV_THREADPOOL_SIZE` | 4 (Node default) | Set to at least `HASH_CONCURRENCY` + 2 when `HASH_CONCURRENCY` is above 4. |
+| `REQUEST_LIMIT_PER_MINUTE` | 120000 | Request ceiling per source address before sign-in checks. A gateway can present a whole sitting from one address: 1,200 students send about 24,000 saves a minute. |
 
 Recommended for this size: one API instance with at least 2 vCPU and 2 GB RAM (the test peaked at about 1.3 GB), and PostgreSQL with at least 2 GB RAM and 50+ connections. The free 512 MB Render service and the 30-day free database are not suitable. Sign-ins and test starts that hit a busy server get a 503 "busy" answer and the browser retries automatically. Reports and exports run at most three at a time, and staff dashboards are built at most six at a time, so staff work cannot starve students' exam saves.
 
@@ -56,6 +57,12 @@ Configure process restarts, memory/CPU limits, request/body timeouts and logging
 Schedule encrypted PostgreSQL backups and object-storage versioning/backup according to the institution's retention policy. Use an operational account separate from application access. Test restoration into an isolated database and verify counts, attempts, snapshots, score revisions, releases and media references. Never test restoration by overwriting the live database.
 
 Keep migrations and a tested rollback/recovery plan with every release. Append-only audit/score triggers intentionally reject modification; do not disable them to perform routine application actions. Session/throttle/import records require an approved retention/cleanup schedule before go-live.
+
+## Monitoring and the exam path
+
+- `.github/workflows/uptime.yml` calls `/api/health` (which also queries the database) every 15 minutes and fails if the portal does not answer; GitHub emails the repository owner about failed runs. Set the repository variable `PORTAL_URL` if the address changes. This is a basic check, not full monitoring: add the hosting provider's alerts for memory, restarts and errors before a real sitting.
+- Tested on 16 Nov 2026 with 500 simulated students on one FLT (local machine, real PostgreSQL and audio): no server errors, no lost answers, API memory peak 564 MB. A 512 MB instance is therefore too small for a sitting of that size.
+- Every exam save goes through the Vercel proxy to Render (about 1.6 million requests for 500 students over a full test), which counts against the Vercel plan. The Render container already serves the built website, so the portal can instead be used directly on the Render address or a custom domain: set `APP_ORIGIN` on Render to that address. Decide this before the first large sitting.
 
 ## Launch gates
 

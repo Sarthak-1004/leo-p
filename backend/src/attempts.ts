@@ -2,13 +2,13 @@ import {platformSettings} from "./settings.js";
 import { randomUUID } from "node:crypto";
 import type { Db, Tx } from "./db.js";
 import { json, lockedTransaction, transaction } from "./db.js";
-import { assert, overall, rawBand, type Heartbeat, type Conversions } from "./domain.js";
+import { assert, overall, rawBand, packSnapshotQuestions, type Heartbeat, type Conversions } from "./domain.js";
 import { audit, notify, studentOnly, digest, type Identity } from "./auth.js";
 import { attemptView } from "./views.js";
 import type { Attempt } from "./generated/prisma/client.js";
 export const SIGNAL_GAP_MS = 7500;
 export const SECTIONS = ["Listening","Reading","Writing"] as const;
-export type Snapshot = { title:string; questions:any[]; builder:any; conversions:Conversions; version:number; skill?:string; untimed?:boolean };
+export type Snapshot = { title:string; questions:any[]; passages?:string[]; builder:any; conversions:Conversions; version:number; skill?:string; untimed?:boolean };
 export async function owned(tx: Tx | Db, user: Identity, id: string) {
   const a = await tx.attempt.findUnique({where:{id}});
   assert(a && (user.role !== "STUDENT" || (a.studentId === user.id && a.course === user.student?.course)),404,"Attempt not found");
@@ -33,7 +33,7 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL"|"ACADE
     const ids = SECTIONS.flatMap(s=>builder.questionIds?.[s]??[]);
     const questions = await tx.question.findMany({where:{id:{in:ids},published:true,archived:false,course:{in:[course,"BOTH"]},skill:{not:"Speaking"}}});
     assert(questions.length === ids.length && ids.length > 0,409,"Test content is not ready");
-    const snapshot:Snapshot = {title:test.title,questions:ids.map((id:string)=>questions.find(q=>q.id===id)),builder,conversions:test.conversions as Conversions,version:test.version};
+    const snapshot:Snapshot = {title:test.title,...packSnapshotQuestions(ids.map((id:string)=>questions.find(q=>q.id===id))),builder,conversions:test.conversions as Conversions,version:test.version};
     const a=await tx.attempt.create({data:{studentId:user.id,course,testId,kind:test.kind,number:used+1,snapshot:json(snapshot),answers:{},remainingMs:test.duration*60000,remainingBySection:json(Object.fromEntries(SECTIONS.map(s=>[s,Number(builder.duration[s])*60000]))),sessionKey:randomUUID(),lastSignalAt:new Date()}});
     await tx.attemptLog.create({data:{attemptId:a.id,event:"START",remainingMs:a.remainingMs}});
     return attemptView(a,true);
@@ -50,7 +50,7 @@ export async function startPractice(db:Db,user:Identity,selection:{skill:string;
   if(selection.skill === "Writing")questions=questions.slice(0,1);
   const minutes=selection.skill === "Writing" && questions[0]?.section === "Task 2"?40:20;
   const untimed=selection.skill!=="Writing";
-  const a=await db.attempt.create({data:{studentId:user.id,course:user.student.course,testId:`practice-${randomUUID()}`,kind:"PRACTICE",number:1,snapshot:json({title:`${selection.skill} practice`,skill:selection.skill,questions,builder:{duration:{[selection.skill]:minutes}},conversions:{},version:1,untimed}),answers:{},remainingMs:untimed?0:minutes*60000,remainingBySection:untimed?{}:{[selection.skill]:minutes*60000},section:Math.max(0,SECTIONS.indexOf(selection.skill as typeof SECTIONS[number])),sessionKey:randomUUID(),lastSignalAt:new Date()}});
+  const a=await db.attempt.create({data:{studentId:user.id,course:user.student.course,testId:`practice-${randomUUID()}`,kind:"PRACTICE",number:1,snapshot:json({title:`${selection.skill} practice`,skill:selection.skill,...packSnapshotQuestions(questions),builder:{duration:{[selection.skill]:minutes}},conversions:{},version:1,untimed}),answers:{},remainingMs:untimed?0:minutes*60000,remainingBySection:untimed?{}:{[selection.skill]:minutes*60000},section:Math.max(0,SECTIONS.indexOf(selection.skill as typeof SECTIONS[number])),sessionKey:randomUUID(),lastSignalAt:new Date()}});
   return attemptView(a,true);
 }
 function validateAnswers(keys:string[],answers:Record<string,string>) {

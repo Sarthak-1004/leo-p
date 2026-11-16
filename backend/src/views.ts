@@ -1,7 +1,7 @@
 import {platformSettings} from "./settings.js";
 import type { Db } from "./db.js";
 import { academicSelect, type Identity } from "./auth.js";
-import { defaultSettings, overall, today } from "./domain.js";
+import { defaultSettings, overall, today, snapshotQuestions } from "./domain.js";
 import type { Config } from "./config.js";
 import type { Attempt, Question, Result, ScoreRevision } from "./generated/prisma/client.js";
 
@@ -14,13 +14,15 @@ const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: any) => 
 export function staffAttemptView(a: Attempt) {
   const snapshot = a.snapshot as any;
   const { sessionKey: _, ...view } = attemptView(a);
-  return { ...view, name: snapshot.title, practiceSkill: snapshot.skill, timed: !snapshot.untimed, hiddenSeconds: Math.round(a.hiddenMs / 1000), activeSeconds: Math.round(a.activeMs / 1000), questions: (snapshot.questions ?? []).map((q: any) => publicQuestion(q, true)) };
+  return { ...view, name: snapshot.title, practiceSkill: snapshot.skill, timed: !snapshot.untimed, hiddenSeconds: Math.round(a.hiddenMs / 1000), activeSeconds: Math.round(a.activeMs / 1000), questions: snapshotQuestions(snapshot).map((q: any) => publicQuestion(q, true)) };
 }
 // The snapshot is optional: summaries and heartbeat acknowledgements are built without loading the paper.
 export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt["snapshot"] }, includeContent = false) {
   const snapshot = a.snapshot as any;
+  // The open section's passages travel once, keyed by index; each question carries only its passageRef.
+  const open = includeContent ? openQuestions(a, snapshot) : [], refs = [...new Set(open.map((q: any) => q.passageRef).filter((r: any) => r !== undefined))];
   return { submittedSections:a.submittedSections, id:a.id, testId:a.testId, studentId:a.studentId, course:a.course, kind:a.kind, number:a.number, state:a.state === "IN_PROGRESS" ? "In progress" : "Submitted", remainingSeconds:Math.ceil(a.remainingMs/1000), remainingBySection:a.remainingBySection, sectionRemainingSeconds:Math.ceil(((a.remainingBySection as any)[["Listening","Reading","Writing"][a.section]!]??a.remainingMs)/1000), section:a.section, question:a.question, answers:a.answers, theme:a.theme, fontSize:a.fontSize, interruptions:a.interruptions, flagged:a.flagged, sequence:a.sequence, sessionKey:a.sessionKey,
-    ...(includeContent ? { questions:openQuestions(a, snapshot).map((q:any) => publicQuestion(q)), name:snapshot.title, practiceSkill:snapshot.skill, timed:!snapshot.untimed } : {}) };
+    ...(includeContent ? { questions:open.map((q:any) => ({ ...publicQuestion(q), ...(q.passageRef !== undefined ? { passageRef:q.passageRef } : {}) })), ...(refs.length ? { passages:Object.fromEntries(refs.map(r => [r, snapshot.passages?.[r as number] ?? ""])) } : {}), name:snapshot.title, practiceSkill:snapshot.skill, timed:!snapshot.untimed } : {}) };
 }
 export function resultView(result: Result & { revisions?: ScoreRevision[]; jobs?: any[] }, user: Identity) {
   const internal = user.role !== "STUDENT";

@@ -7,6 +7,8 @@ import {Badge,Button,Card,ContentContainer,EmptyState,LinkButton,Modal,Notice,Pa
 import {TestScreen} from "../../components/TestScreen";
 import type {TestAttempt} from "../../types/domain";
 const sections=["Listening","Reading","Writing"] as const;
+// The server sends each Reading passage once; put it back on the questions that point to it.
+function withPassages<T extends Partial<TestAttempt>>(a:T):T{return a.passages&&a.questions?{...a,questions:a.questions.map(q=>q.passageRef===undefined?q:{...q,passage:a.passages![q.passageRef]??q.passage})}:a;}
 export function LiveExam(){
   const {attemptId}=useParams();const {course,refresh,settings:platform,students}=usePreview();
   const [attempt,setAttempt]=useState<TestAttempt>();const [error,setError]=useState("");const [saved,setSaved]=useState("Loading saved answers...");
@@ -18,7 +20,7 @@ export function LiveExam(){
   const tabKey=useRef(crypto.randomUUID());
   const pendingSignal=useRef<{body:Record<string,unknown>;revision:number;submit:boolean}|undefined>(undefined);
   const patch=useCallback((change:Partial<TestAttempt>)=>{const next=current.current&&{...current.current,...change};if(next){edit.current++;current.current=next;setAttempt(next);setSaved("Unsaved changes");}},[]);
-  useEffect(()=>{let active=true;api<TestAttempt>(`/attempts/${attemptId}?session=${tabKey.current}`).then(a=>{if(!active)return;current.current=a;setAttempt(a);setSeconds(a.sectionRemainingSeconds ?? a.remainingSeconds);confirmed.current={remaining:a.sectionRemainingSeconds ?? a.remainingSeconds,at:performance.now()};setSaved("Saved on server");}).catch(e=>setError(e.message));return()=>{active=false;};},[attemptId]);
+  useEffect(()=>{let active=true;api<TestAttempt>(`/attempts/${attemptId}?session=${tabKey.current}`).then(withPassages).then(a=>{if(!active)return;current.current=a;setAttempt(a);setSeconds(a.sectionRemainingSeconds ?? a.remainingSeconds);confirmed.current={remaining:a.sectionRemainingSeconds ?? a.remainingSeconds,at:performance.now()};setSaved("Saved on server");}).catch(e=>setError(e.message));return()=>{active=false;};},[attemptId]);
   const send=useCallback(async function persist(submit=false,completeSection=false,targetSection?:number):Promise<void>{
     // A hidden tab keeps signalling: it is still connected exam time (reported as hidden for review).
     const a=current.current;if(!a||a.state==="Submitted"||(!submit&&!navigator.onLine))return;
@@ -31,7 +33,7 @@ export function LiveExam(){
     if(transitioning)setWaitingForSection(true);
     sending.current=true;if(submit||completeSection||targetSection!==undefined||transitioning)setBusy(true);const revision=pending.revision;setSaved("Saving...");
     try{
-      const result=await api<{attempt:TestAttempt;submitted:boolean}>(`/attempts/${a.id}/${pending.submit?"submit":"heartbeat"}`,{method:"POST",body:pending.body});
+      const response=await api<{attempt:TestAttempt;submitted:boolean}>(`/attempts/${a.id}/${pending.submit?"submit":"heartbeat"}`,{method:"POST",body:pending.body}),result={...response,attempt:withPassages(response.attempt)};
       pendingSignal.current=undefined;
       setWaitingForSection(false);
       if(pending.body.resumed)resumed.current=false;const latest=current.current!;
@@ -59,7 +61,7 @@ export function LiveExam(){
   const section=attempt.practiceSkill??sections[attempt.section]??"Listening";
   const answers=Object.fromEntries(Object.entries(attempt.answers).filter(([key])=>key.startsWith(section+":")).map(([key,value])=>[key.slice(section.length+1),value]));
   const setAnswer=(key:string,value:string)=>patch({answers:{...current.current!.answers,[`${section}:${key}`]:value}});
-  const reload=async()=>{if(!window.confirm("Reload the server-saved answers? Changes not yet acknowledged by the server will be replaced."))return;try{const saved=await api<TestAttempt>(`/attempts/${attempt.id}?session=${tabKey.current}`);pendingSignal.current=undefined;setWaitingForSection(false);current.current=saved;setAttempt(saved);setError("");setSaved("Saved on server");confirmed.current={remaining:saved.sectionRemainingSeconds??saved.remainingSeconds,at:performance.now()};setSeconds(confirmed.current.remaining);}catch(e){setError(e instanceof Error?e.message:"Could not restore saved answers");}};
+  const reload=async()=>{if(!window.confirm("Reload the server-saved answers? Changes not yet acknowledged by the server will be replaced."))return;try{const saved=withPassages(await api<TestAttempt>(`/attempts/${attempt.id}?session=${tabKey.current}`));pendingSignal.current=undefined;setWaitingForSection(false);current.current=saved;setAttempt(saved);setError("");setSaved("Saved on server");confirmed.current={remaining:saved.sectionRemainingSeconds??saved.remainingSeconds,at:performance.now()};setSeconds(confirmed.current.remaining);}catch(e){setError(e instanceof Error?e.message:"Could not restore saved answers");}};
   const alerts=<>{attempt.timed !== false && seconds === 0 && <Notice>This section has ended. Move to the next section or submit the test.</Notice>}{!connected&&<Notice>Connection interrupted. The timer has stopped. Saved answers will be restored when you reconnect.</Notice>}{error&&<div role="alert" className="notice">{error}<Button variant="secondary" onClick={()=>void sendRef.current()}>Retry save</Button><Button variant="secondary" onClick={()=>void reload()}>Reload saved answers</Button></div>}</>;
   const modals=<>{confirmSection&&<Modal title={`Submit ${section} section?`} onClose={()=>{if(!busy)setConfirmSection(false);}}><div className="stack"><p>Answers in this section will be final. Unused section time will end and the next available section will open.</p><Button disabled={busy} onClick={async()=>{await sendRef.current(false,true);setConfirmSection(false);}}>Confirm section submission</Button><Button variant="ghost" disabled={busy} onClick={()=>setConfirmSection(false)}>Keep working</Button></div></Modal>}
     {confirm&&<Modal title="Submit this test?" onClose={()=>setConfirm(false)}><div className="stack"><p>Submitted answers cannot be edited. This uses the attempt already started.</p><Button disabled={busy} onClick={async()=>{await sendRef.current(true);setConfirm(false);}}>Confirm submission</Button><Button variant="ghost" onClick={()=>setConfirm(false)}>Keep working</Button></div></Modal>}</>;

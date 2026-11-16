@@ -12,7 +12,7 @@ import { json, lockedTransaction, transaction, Prisma, retryableTransactionError
 import type { Config } from "./config.js";
 import { randomBytes } from "node:crypto";
 import { authenticate, active, admin, audit, digest, hashPassword, passwordNeedsRehash, notify, sessionFor, staff, studentOnly, throttle, throttleCount, verifyPassword, type Authenticated } from "./auth.js";
-import { assert, ApiError, course, defaultSettings, heartbeatSchema, identifier, password, questionSchema, settingsSchema, roundBand } from "./domain.js";
+import { assert, ApiError, snapshotQuestions, course, defaultSettings, heartbeatSchema, identifier, password, questionSchema, settingsSchema, roundBand } from "./domain.js";
 import { bootstrap, publicQuestion, resultView, staffAttemptView, userView } from "./views.js";
 import { forceSubmit, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
 import { claim, evaluate, evaluationSchema, release } from "./evaluation.js";
@@ -44,7 +44,9 @@ export async function buildApp(db:Db,config:Config) {
   // Transport backstop before authentication/database work. The socket may be a
   // shared gateway: this deliberately generous ceiling is not the login budget.
   // Canonical-account password/write limits remain durable in PostgreSQL.
-  await app.register(rateLimit,{max:30000,timeWindow:60000,cache:2000,skipOnError:false});
+  // 1,200 students saving every 3 s send about 24,000 requests a minute, and a gateway can present
+  // them all from one address, so the default leaves room for a full sitting plus audio and dashboards.
+  await app.register(rateLimit,{max:Number(process.env.REQUEST_LIMIT_PER_MINUTE)||120000,timeWindow:60000,cache:2000,skipOnError:false});
   // Route-level hooks run after global authentication hooks in Fastify. Run the
   // same limiter here first; its request marker prevents counting twice later.
   app.addHook("onRequest",app.rateLimit());
@@ -168,7 +170,7 @@ export async function buildApp(db:Db,config:Config) {
     const dto=resultView(r,u);assert(dto.visible,409,"Scoring is not complete");
     // Practice Mocks allow two attempts on the same paper: keep keys hidden until both are used.
     const keysWithheld=u.role==="STUDENT"&&r.kind==="PRACTICE_MOCK"&&await db.attempt.count({where:{studentId:u.id,course:r.course,testId:r.testId,state:"SUBMITTED"}})<2;
-    return {...dto,keysWithheld,responses:r.attempt.answers,questions:(r.attempt.snapshot as any).questions.map((q:any)=>publicQuestion(q,!keysWithheld))};
+    return {...dto,keysWithheld,responses:r.attempt.answers,questions:snapshotQuestions(r.attempt.snapshot).map((q:any)=>publicQuestion(q,!keysWithheld))};
   });
   app.post("/api/results/:id/claim",async req=>claim(db,user(req),(req.params as any).id));
   app.put("/api/results/:id/evaluation",async req=>evaluate(db,user(req),(req.params as any).id,evaluationSchema.parse(req.body)));

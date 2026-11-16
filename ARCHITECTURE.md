@@ -95,7 +95,7 @@ All roles sign in directly with an assigned ID or uniquely matched recorded emai
 
 The retired MFA schema fields/tables and the eighth historical migration are retained for existing databases and backup/rollback compatibility. They do not enforce authentication or issue sessions. No destructive migration removes accounts, credentials or historical records. Previously enrolled staff and existing valid sessions use the password-only policy; a stale challenge cookie alone never grants access. Existing deployment encryption keys are preserved for rollback, but are no longer read or required for sign-in.
 
-A per-process bounded Fastify request limiter runs before authentication/database work with a deliberately generous 30,000-request/minute socket-source ceiling for shared gateways. It ignores untrusted forwarding headers. Durable canonical-account password and authenticated-write limits remain in PostgreSQL. This process-level backstop is not distributed edge/DDoS protection; provider ingress controls and production capacity need separate verification.
+A per-process bounded Fastify request limiter runs before authentication/database work with a deliberately generous 120,000-request/minute socket-source ceiling for shared gateways (REQUEST_LIMIT_PER_MINUTE; a full 1,200-student sitting sends about 24,000 saves a minute and may arrive from one gateway address). It ignores untrusted forwarding headers. Durable canonical-account password and authenticated-write limits remain in PostgreSQL. This process-level backstop is not distributed edge/DDoS protection; provider ingress controls and production capacity need separate verification.
 
 Every protected API and media request must evaluate authenticated role, current account status, scope, ownership and relevant lifecycle. Refresh stale authorization claims when Admin changes course/status/access; a client route parameter or cached token claim alone is insufficient.
 
@@ -120,7 +120,7 @@ Trainer assignment selects a default queue and notification recipient. It must n
 
 Start attempts transactionally in PostgreSQL. Lock/serialize the relevant student/test counter or enforce an equivalent database constraint so concurrent starts cannot exceed two Practice Mock attempts or one FLT attempt. Count at start, preserve all attempts, and make duplicate/retried start and final-submit requests idempotent. Resuming never creates another attempt.
 
-Store immutable test/content and conversion versions or snapshots for interpretable historical results. A test edit/unpublication must not silently rewrite acknowledged responses or previously calculated results. Define active-attempt behavior for course reassignment, account expiry/disablement, content updates and availability changes before deployment.
+Store immutable test/content and conversion versions or snapshots for interpretable historical results. A snapshot keeps each Reading passage once in `passages`; its questions carry a `passageRef` index, and the open section's passages are sent to the browser once. Snapshots frozen before 17 Nov 2026 hold the passage on every question and are read unchanged. A test edit/unpublication must not silently rewrite acknowledged responses or previously calculated results. Define active-attempt behavior for course reassignment, account expiry/disablement, content updates and availability changes before deployment.
 
 Implement the SOW's **connected-time** policy, not a wall-clock deadline that keeps running while disconnected:
 
