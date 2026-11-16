@@ -29,7 +29,7 @@
     "content:voice": "tsx --env-file-if-exists=.env scripts/voice-listening.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.1168.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@fastify/cookie": "^11.0.0",
     "@fastify/helmet": "^13.0.0",
