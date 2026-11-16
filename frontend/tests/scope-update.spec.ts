@@ -32,7 +32,7 @@ const noOverflow = async (page: Page) => expect(await page.evaluate(() => docume
 
 
 
-test("SOW band thresholds and missing lower conversions", () => {
+test("SOW band thresholds and client-approved low-score conversions", () => {
 
   expect([6.125,6.25,6.375,6.75,3.875].map(roundBand)).toEqual([6,6.5,6.5,7,4]);
 
@@ -48,9 +48,9 @@ test("SOW band thresholds and missing lower conversions", () => {
 
   expect(rawToBand(30,"Reading","ACADEMIC")).toBe(7);
 
-  expect(rawToBand(9,"Listening","GENERAL")).toBeNull();
+  expect(rawToBand(9,"Listening","GENERAL")).toBe(3.5); expect(rawToBand(0,"Listening","GENERAL")).toBe(0);
 
-  expect(rawToBand(8,"Reading","GENERAL")).toBeNull();
+  expect(rawToBand(8,"Reading","GENERAL")).toBe(2.5); expect(rawToBand(8,"Reading","ACADEMIC")).toBe(3.5);
 
   expect(() => speakingBand({ fluency: 6.5, lexical: 6, grammar: 7, pronunciation: 7 })).toThrow();
 
