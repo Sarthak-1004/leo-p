@@ -108,6 +108,8 @@ export interface TestAttempt {
   number: number; state: "In progress" | "Submitted"; remainingSeconds: number;
   section: number; question: number; answers: Answers;
   theme: "standard" | "dark" | "yellow";
+  audioPart?: number;
+  audioMs?: number;
   fontSize: "standard" | "large" | "extra-large";
   interruptions: number;
   submittedSections?: string[];

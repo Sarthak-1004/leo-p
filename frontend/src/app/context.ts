@@ -3,7 +3,7 @@ import type { AuditEvent, Course, MockTest, Notification, PlatformSettings, Prac
 type Awaitable<T> = T | Promise<T>;
 export interface SessionUser { id:string;name:string;role:Role;email?:string;course?:Course;accessActive:boolean;startDate?:string;expiryDate?:string; }
 export interface PreviewState {
-  statistics?:{students:number;activeStudents:number;generalStudents:number;academicStudents:number;trainers:number;results:number;pending:number;ready:number;unlocked:number};
+  statistics?:{students:number;activeStudents:number;generalStudents:number;academicStudents:number;trainers:number;results:number;pending:number;ready:number;unlocked:number;questions?:number};
   hasMore?:boolean;nextOffset?:number;
   students:Student[];trainers:Trainer[];tests:MockTest[];questions:Question[];results:Result[];progress:Progress[];
   attempts:TestAttempt[];practiceRecords:PracticeRecord[];notifications:Notification[];auditEvents:AuditEvent[];settings:PlatformSettings;

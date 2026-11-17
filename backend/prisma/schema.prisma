@@ -185,6 +185,9 @@ model Attempt {
   sessionKey String
   lastSignalAt DateTime?
   interruptions Int @default(0)
+  // Listening audio plays once: the furthest position the browser reported (part index, ms within it).
+  audioPart Int @default(0)
+  audioMs Int @default(0)
   flagged Boolean @default(false)
   createdAt DateTime @default(now())
   submittedAt DateTime?

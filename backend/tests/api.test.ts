@@ -358,7 +358,7 @@ test("encoded API routes use authentication and cache policy regardless of raw s
 test("Trainer bootstrap never enumerates draft questions or test builders; evaluation keys remain accessible",async()=>{
   await db.question.create({data:{id:"000-security-private",skill:"Reading",course:"ACADEMIC",title:"Private draft",prompt:"SYNTHETIC-PRIVATE-DRAFT",questionType:"Completion",section:"Passage 1",options:[],answer:"SYNTHETIC-PRIVATE-KEY",published:false}});
   for(const url of ["/api/bootstrap","/api/bootstrap?offset=1&limit=1"]){const r=await call("trainer","GET",url);assert.equal(r.statusCode,200);assert.deepEqual(r.json().questions,[]);assert.ok(!r.body.includes("SYNTHETIC-PRIVATE"));assert.ok(r.json().tests.every((t:any)=>t.builder===undefined&&t.conversions===undefined));}
-  assert.ok((await call("admin","GET","/api/bootstrap")).body.includes("SYNTHETIC-PRIVATE-KEY"));
+  assert.ok(!(await call("admin","GET","/api/bootstrap")).body.includes("SYNTHETIC-PRIVATE-KEY"));assert.equal((await call("admin","GET","/api/admin/questions/000-security-private")).json().answer,"SYNTHETIC-PRIVATE-KEY");
   const id=await submitted();const result=await call("trainer","GET",`/api/results/${id}`);assert.equal(result.statusCode,200,result.body);assert.ok(result.json().questions.some((q:any)=>q.answer==="yes"));
 });
 test("reconnect claims cannot cancel continuous server time; actual stale gaps still pause and flag",async()=>{
@@ -554,6 +554,18 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("Admin loads one full question; staff bootstrap leaves out questions and score history",async()=>{
+  const f=await fixture();const id=f.questions[0]!.id;
+  assert.equal((await call("trainer","GET",`/api/admin/questions/${id}`)).statusCode,403);
+  const one=await call("admin","GET",`/api/admin/questions/${id}`);assert.equal(one.statusCode,200,one.body);assert.equal(one.json().id,id);assert.ok("answer" in one.json());
+  assert.equal((await call("admin","GET","/api/admin/questions/no-such-question")).statusCode,404);
+  await db.question.update({where:{id},data:{archived:true,published:false}});
+  const archived=await call("admin","GET",`/api/admin/questions?status=archived&search=${f.id}&order=id`);assert.equal(archived.statusCode,200,archived.body);
+  assert.deepEqual(archived.json().rows.map((q:any)=>q.id),[id]);
+  const drafts=await call("admin","GET",`/api/admin/questions?status=draft&search=${f.id}`);assert.ok(!drafts.json().rows.some((q:any)=>q.id===id));
+  for(const role of ["admin","trainer"] as const){const b=(await call(role,"GET","/api/bootstrap")).json();assert.deepEqual(b.questions,[]);assert.ok(b.results.every((r:any)=>r.revisions===undefined||r.revisions.length===0));}
+  assert.equal(typeof (await call("admin","GET","/api/bootstrap")).json().statistics.questions,"number");
+});
 async function freshStudent(course:"GENERAL"|"ACADEMIC"="GENERAL") {
   const id=`st-${randomUUID().slice(0,8)}`;await db.user.create({data:{id,role:"STUDENT",name:`Student ${id}`,passwordHash:await hashPassword(secret)}});
   await db.student.create({data:{id,course,startDate:"2020-01-01",expiryDate:"2099-01-01",trainerId:"trainer"}});
@@ -698,4 +710,15 @@ test("an attempt stores and sends each Reading passage once, and older snapshots
   const old={questions:[{id:"x",skill:"Reading",passage:"inline"}]};assert.equal(snapshotQuestions(old)[0].passage,"inline");
   const packed=packSnapshotQuestions([{id:"a",passage:"P1"},{id:"b",passage:"P2"},{id:"c",passage:"P1"},{id:"d",passage:""}]);
   assert.deepEqual(packed.passages,["P1","P2"]);assert.deepEqual(snapshotQuestions(packed).map((q:any)=>q.passage),["P1","P2","P1",""]);
+});
+test("Listening audio position only moves forward, so a reload continues instead of replaying",async()=>{
+  const s=await freshStudent();const f=await fixture("FLT");let a=(await call(s,"POST",`/api/tests/GENERAL/${f.id}/start`)).json();
+  assert.equal(a.audioPart,0);assert.equal(a.audioMs,0);
+  const beat=async(audioPart?:number,audioMs?:number)=>{const r=await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a),...(audioPart!==undefined?{audioPart,audioMs}:{})});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;return a;};
+  await beat(1,5000);assert.deepEqual([a.audioPart,a.audioMs],[1,5000]);
+  await beat(0,900000);assert.deepEqual([a.audioPart,a.audioMs],[1,5000],"an earlier part cannot be set");
+  await beat(1,1000);assert.deepEqual([a.audioPart,a.audioMs],[1,5000],"rewinding within a part is ignored");
+  await beat();assert.deepEqual([a.audioPart,a.audioMs],[1,5000],"saves without a position keep it");
+  await beat(2,0);const resumed=(await call(s,"GET",`/api/attempts/${a.id}`)).json();assert.deepEqual([resumed.audioPart,resumed.audioMs],[2,0]);
+  assert.equal((await call(s,"POST",`/api/attempts/${a.id}/heartbeat`,{...payload(resumed),audioPart:-1,audioMs:0})).statusCode,400);
 });

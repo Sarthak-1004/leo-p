@@ -203,7 +203,7 @@ The SOW delivery phases are discovery/design; core platform; practice/tests; eva
 
 | Item | Current treatment |
 | --- | --- |
-| Practice Mock count per course | Client confirmation required; sample fixtures do not define the production catalog. |
+| Practice Mock count per course | Decided 17 Nov 2026: no fixed count. Admin publishes as many Practice Mocks as wanted; students can take any published mock (2 attempts each) without unlock. FLTs open only when Admin turns on course availability. |
 | Final test theme names/colours | Use SOW defaults pending design confirmation. |
 | Interruption review limit | Default 3; flag when count exceeds it; Admin configurable. |
 | Historical student results after expiry | Not accessible by default. |
@@ -216,7 +216,7 @@ The SOW delivery phases are discovery/design; core platform; practice/tests; eva
 | Practice Mock answer keys (QA 3 Nov 2026, client to confirm) | Reference answers appear after both attempts on that test are used. |
 | Usage limits (QA 3 Nov 2026) | Admin-configurable: module practice sessions per student per day (60), AI Writing evaluations per student per day for module practice (5) and for the whole portal (300). Blank module-practice essays score 0 without AI. |
 | Sign-in lockout (QA 3 Nov 2026) | Only failed sign-ins count, and a success clears them. After 12 failures in 15 minutes, new browsers wait; a browser that previously signed in to the account keeps its own budget. |
-| Listening audio replay | Open: replay/seeking in Practice Mocks and FLTs needs a client decision. All attached recordings play in order. |
+| Listening audio replay | Decided 17 Nov 2026: in Practice Mocks and FLTs the audio plays once. A start screen explains this and waits for Play; there is no pause, rewind or seek, only volume. Recordings play in order across parts. The furthest position is stored on the attempt and only moves forward, so a reload continues where it stopped. Module practice keeps full controls and speed. |
 | Dates and course history | Inclusive calendar dates in the configured ACCESS_TIMEZONE (default Asia/Kolkata), including report date filters; historical original-course records remain staff-accessible. |
 | Ranking/progress/review | Replaceable defaults are recorded below; latest Practice Mock attempt, available scored records and released-only FLTs. |
 | Incomplete-result release exception | Block incomplete L/R/W by default; reconcile A62 with A65 before an override is offered. |

@@ -6,7 +6,10 @@
 .cbt :focus-visible { outline: 3px solid var(--test-accent); outline-offset: 2px; }
 .cbt-header { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; padding: 10px 24px; border-bottom: 1px solid var(--cbt-line); }
 .cbt-who { display: flex; align-items: center; gap: 18px; min-width: 0; }
-.cbt-brand { font-weight: 800; font-size: 1.15em; letter-spacing: .02em; color: var(--test-accent); white-space: nowrap; }
+/* LEO PREP wordmark: the solid red measured from the reference exam screen (#D0363C) in a heavy sans. */
+.cbt-brand { font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif; font-weight: 900; font-size: 2.15rem; line-height: 1; letter-spacing: -.02em; color: #d0363c; white-space: nowrap; }
+.test-theme-dark .cbt-brand { color: #ff6b70; }
+.test-theme-yellow .cbt-brand { color: var(--test-fg); }
 .cbt-candidate { display: grid; line-height: 1.3; min-width: 0; }
 .cbt-candidate strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cbt-candidate small { display: inline-flex; align-items: center; gap: 6px; font-size: .85em; }
@@ -101,7 +104,7 @@
 @media (max-width: 1023px) {
   .cbt-header { grid-template-columns: 1fr auto; padding: 10px 16px; }
   .cbt-time { grid-column: 1 / -1; grid-row: 2; justify-items: start; }
-  .cbt-brand { display: none; }
+  .cbt-brand { font-size: 1.7rem; }
   .cbt-body { padding: 16px 16px 110px; }
   .cbt-split { grid-template-columns: 1fr; }
   .cbt-pane { max-height: none; }
@@ -121,3 +124,34 @@
   .cbt-with-options .cbt-chips { position: static; flex-direction: row; }
   .cbt-drop, .cbt-gap { min-width: 0; width: 100%; margin: 4px 0; }
 }
+
+/* Listening start screen: the recording plays once, so it waits for the student's Play. */
+.cbt-audio-gate { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / .7); color: #fff; }
+.cbt-audio-gate-box { display: grid; justify-items: center; gap: 18px; max-width: 980px; text-align: center; font-size: var(--test-size); }
+.cbt-audio-gate-box p { margin: 0; line-height: 1.6; }
+.cbt-play { display: inline-flex; align-items: center; gap: 14px; min-height: 64px; padding: 0 30px; border: 0; border-radius: 2px; background: #000; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.cbt-play:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.cbt-audio-error { margin: 0 0 16px; padding: 10px 14px; border: 1px solid currentColor; border-radius: 4px; }
+@media (max-width: 600px) {
+  .cbt-audio-gate-box .cbt-headphones { width: 100px; height: 88px; }
+  .cbt-brand { font-size: 1.5rem; }
+  .cbt-who { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .cbt-candidate strong { max-width: 60vw; }
+}
+
+/* Highlights and notes (CSS Custom Highlight API: the passage text itself is never rewritten). */
+::highlight(cbt-highlight) { background-color: #ffe25a; color: #000; }
+::highlight(cbt-note) { background-color: #ffe25a; color: #000; text-decoration: underline dotted 2px #b15c00; }
+.cbt-annotate-menu { position: fixed; z-index: 40; display: flex; min-width: 220px; background: var(--test-bg); color: var(--test-fg); border: 1px solid var(--test-fg); border-radius: 4px; box-shadow: 0 6px 18px rgb(0 0 0 / .2); overflow: hidden; }
+.cbt-annotate-menu button { flex: 1; min-height: 40px; padding: 0 12px; border: 0; background: transparent; cursor: pointer; white-space: nowrap; }
+.cbt-annotate-menu button + button { border-left: 1px solid var(--cbt-line); }
+.cbt-annotate-menu button:hover, .cbt-annotate-menu button:focus-visible { background: var(--cbt-soft); }
+.cbt-notes { position: fixed; z-index: 30; right: 0; top: 90px; bottom: 70px; width: min(360px, 100vw); display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow: auto; background: var(--test-bg); color: var(--test-fg); border-left: 1px solid var(--test-fg); box-shadow: -6px 0 18px rgb(0 0 0 / .12); }
+.cbt-notes-head { display: flex; align-items: center; justify-content: space-between; }
+.cbt-notes-head button { width: 40px; height: 40px; border: 1px solid var(--cbt-line); background: transparent; border-radius: 4px; cursor: pointer; font-size: 1.3em; }
+.cbt-note { display: grid; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--cbt-line); }
+.cbt-note q { font-style: italic; }
+.cbt-note textarea { width: 100%; padding: 8px; border: 1px solid var(--test-fg); border-radius: 3px; background: var(--test-bg); color: var(--test-fg); font: inherit; resize: vertical; }
+.cbt-note button { justify-self: start; min-height: 32px; padding: 0 10px; border: 1px solid var(--cbt-line); background: transparent; border-radius: 4px; cursor: pointer; }
+.cbt-notes-empty { margin: 0; font-size: .9em; opacity: .8; }
+@media (max-width: 1023px) { .cbt-notes { top: auto; bottom: 64px; height: 50dvh; width: 100vw; border-left: 0; border-top: 1px solid var(--test-fg); } }

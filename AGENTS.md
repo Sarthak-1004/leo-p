@@ -25,10 +25,10 @@
 - Each student belongs to exactly one course: General or Academic. Admin controls course, credentials, account status and access dates.
 - Students cannot self-register or reset/change their passwords. Fixed prohibitions must not become settings toggles.
 - Module practice and published Practice Mock Tests need no Admin unlock during active access.
-- Practice Mocks allow 2 attempts per test. FLTs allow 1 and have exactly 52 tests per course (client decision 16 Nov 2026; previously 40). Count at start; resume is the same attempt. Practice Mock catalog count is awaiting client confirmation.
+- Practice Mocks allow 2 attempts per test. FLTs allow 1 and have exactly 52 tests per course (client decision 16 Nov 2026; previously 40). Count at start; resume is the same attempt. Practice Mocks have no fixed count (client decision 17 Nov 2026): Admin publishes as many as wanted and they are open without unlock. FLTs open only when Admin turns on course availability.
 - FLT availability is course-level and independent between General and Academic. Keep publication separate. Never add individual permissions, credits or extra-attempt grants.
 - Digital Speaking is disabled: no student Speaking recording, submission, transcript or AI scoring. Keep the offline explanation; staff may manage Speaking questions and enter offline marks.
-- Listening speed 1x/1.5x/2x exists only in module practice; reset to 1x per new attempt. No speed controls in Practice Mocks or FLTs.
+- Listening speed 1x/1.5x/2x exists only in module practice; reset to 1x per new attempt. No speed controls in Practice Mocks or FLTs. There, Listening audio plays once (client decision 17 Nov 2026): a start screen with Play, no pause/rewind/seek controls, and the server keeps the furthest audio position so a reload continues instead of replaying. Volume is the only control.
 - FLT scores/feedback require Admin release, including in summaries/history/direct URLs. Practice results need no release after scoring.
 - FLTs can be released with Speaking pending when L/R/W are complete; label Overall (3 skills) - Speaking pending. Recalculate/notify after Speaking is entered. Do not treat missing L/R/W as zero.
 - Trainer assignment routes workload, not access. Any Trainer can evaluate any student's academic record, but cannot manage accounts/access or release results.

@@ -1,10 +1,11 @@
 import { Pagination } from "../../components/Pagination";
-import { usePagination } from "../../utils/usePagination";
+import { useFullQuestion, useQuestionSearch, type QuestionStatus } from "../../utils/useQuestionSearch";
+import { api } from "../../services/api";
 import { AssetUpload } from "../../components/AssetUpload";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePreview } from "../../app/PreviewContext";
-import type { Question, Skill } from "../../types/domain";
+import type { Course, Question, Skill } from "../../types/domain";
 import { skills } from "../../mocks/practice";
 import {
   Badge,
@@ -23,7 +24,7 @@ import {
 import { Icon } from "../../components/Icon";
 import {skillIcon} from "../../components/iconNames";
 export function QuestionBank() {
-  const { questions, updateQuestion } = usePreview();
+  const { mode, updateQuestion } = usePreview();
   const [skill, setSkill] = useState("All");
   const [search, setSearch] = useState("");
   const [course, setCourse] = useState("ALL");
@@ -31,15 +32,14 @@ export function QuestionBank() {
   const [questionType, setQuestionType] = useState("All");
   const [status,setStatus]=useState("All");const [order,setOrder]=useState("Title");
   const [section, setSection] = useState("All");
-  const filtered = questions.filter(
-    (q) =>
-      (status === "All" || status === "Archived" && q.archived || status === "Published" && q.published && !q.archived || status === "Draft" && !q.published && !q.archived) && (skill === "All" || q.skill === skill) &&
-      (questionType === "All" || q.questionType === questionType) &&
-      (section === "All" || q.section === section) &&
-      (course === "ALL" || q.course === "BOTH" || q.course === course) &&
-      `${q.title} ${q.prompt}`.toLowerCase().includes(search.toLowerCase()),
-  ).sort((a,b)=>order==="ID"?a.id.localeCompare(b.id):a.title.localeCompare(b.title));
-  const pagination=usePagination(filtered,10);
+  const [page,setPage]=useState(1);const [reload,setReload]=useState(0);const [actionError,setActionError]=useState("");
+  const filter=<T,>(set:(v:T)=>void)=>(v:T)=>{set(v);setPage(1);};
+  const results=useQuestionSearch({skill:skill==="All"?"":skill as Skill,course:course==="ALL"?"":course as Course,search,section:section==="All"?"":section,questionType:questionType==="All"?"":questionType,status:status.toLowerCase() as QuestionStatus,order:order==="ID"?"id":"title",page,limit:10,reload});
+  // List rows carry a short prompt only, so actions load the full question before saving it back.
+  const full=async(q:Question)=>mode==="demo"?q:api<Question>(`/admin/questions/${encodeURIComponent(q.id)}`);
+  const act=async(q:Question,change:(full:Question)=>Question)=>{setActionError("");try{await updateQuestion(change(await full(q)));setReload(n=>n+1);}catch(e){setActionError(e instanceof Error?e.message:"Question could not be saved");}};
+  const openPreview=async(q:Question)=>{try{setPreview(await full(q));}catch{setPreview(q);}};
+  const pagination={page,pages:Math.max(1,Math.ceil(results.count/10)),setPage,count:results.count};
   return (
     <ContentContainer>
       <PageHeader
@@ -55,7 +55,7 @@ export function QuestionBank() {
       <Tabs
         options={["All", ...skills]}
         value={skill}
-        onChange={setSkill}
+        onChange={filter(setSkill)}
         label="Question skill"
       />
       <Card>
@@ -66,21 +66,23 @@ export function QuestionBank() {
               aria-label="Search questions"
               placeholder="Search question bank…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => filter(setSearch)(e.target.value)}
             />
           </label>
           <label className="field">
             <span className="sr-only">Question course filter</span>
-            <select value={course} onChange={(e) => setCourse(e.target.value)}>
+            <select value={course} onChange={(e) => filter(setCourse)(e.target.value)}>
               <option value="ALL">All course eligibility</option>
               <option value="GENERAL">General eligible</option>
               <option value="ACADEMIC">Academic eligible</option>
             </select>
           </label>
         </div>
-        <FilterPanel><div className="form-grid question-filters"><label className="field">Question status<select aria-label="Question status" value={status} onChange={e=>setStatus(e.target.value)}>{["All","Published","Draft","Archived"].map(value=><option key={value}>{value}</option>)}</select></label><label className="field">Sort questions<select aria-label="Sort questions" value={order} onChange={e=>setOrder(e.target.value)}><option>Title</option><option>ID</option></select></label><label className="field">Question type<select value={questionType} onChange={e => setQuestionType(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.questionType).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label><label className="field">Section<select value={section} onChange={e => setSection(e.target.value)}><option>All</option>{[...new Set(questions.map(q => q.section).filter(Boolean))].map(t => <option key={t}>{t}</option>)}</select></label></div>
+        <FilterPanel><div className="form-grid question-filters"><label className="field">Question status<select aria-label="Question status" value={status} onChange={e=>filter(setStatus)(e.target.value)}>{["All","Published","Draft","Archived"].map(value=><option key={value}>{value}</option>)}</select></label><label className="field">Sort questions<select aria-label="Sort questions" value={order} onChange={e=>filter(setOrder)(e.target.value)}><option>Title</option><option>ID</option></select></label><label className="field">Question type<select value={questionType} onChange={e => filter(setQuestionType)(e.target.value)}><option>All</option>{results.questionTypes.filter(Boolean).map(t => <option key={t}>{t}</option>)}</select></label><label className="field">Section<select value={section} onChange={e => filter(setSection)(e.target.value)}><option>All</option>{results.sections.filter(Boolean).map(t => <option key={t}>{t}</option>)}</select></label></div>
         </FilterPanel>
-        {pagination.items.map((q) => (
+        {results.error && <p className="error-text" role="alert">{results.error}</p>}
+        {actionError && <p className="error-text" role="alert">{actionError}</p>}
+        {results.rows.map((q) => (
           <div className="list-row question-record" key={q.id}>
             <div className="row">
               <span className="icon-tile">
@@ -103,7 +105,7 @@ export function QuestionBank() {
               </div>
             </div>
             <div className="actions question-actions">
-              <Button variant="ghost" onClick={() => setPreview(q)}>
+              <Button variant="ghost" onClick={() => void openPreview(q)}>
                 Preview
               </Button>
               <Link
@@ -115,23 +117,24 @@ export function QuestionBank() {
               <Button
                 variant="ghost"
                 onClick={() =>
-                  updateQuestion({
-                    ...q,
-                    id: `${q.skill[0]}-${crypto.randomUUID().slice(0, 8)}`,
-                    title: `${q.title} (copy)`,
+                  void act(q, f => ({
+                    ...f,
+                    id: `${f.skill[0]}-${crypto.randomUUID().slice(0, 8)}`,
+                    title: `${f.title} (copy)`,
                     published: false,
-                  })
+                    archived: false,
+                  }))
                 }
               >
                 Duplicate
               </Button>
-              <Button variant="ghost" onClick={() => updateQuestion({...q,published:!q.published})}>{q.published ? "Unpublish" : "Publish"}</Button>
-              <Button variant="ghost" onClick={() => updateQuestion({...q,archived:!q.archived,published:false})}>{q.archived ? "Restore" : "Archive"}</Button>
+              <Button variant="ghost" onClick={() => void act(q, f => ({...f,published:!f.published}))}>{q.published ? "Unpublish" : "Publish"}</Button>
+              <Button variant="ghost" onClick={() => void act(q, f => ({...f,archived:!f.archived,published:false}))}>{q.archived ? "Restore" : "Archive"}</Button>
             </div>
           </div>
         ))}
         <Pagination {...pagination} />
-        {!filtered.length && <EmptyState title="No matching questions" />}
+        {!results.loading && !results.count && !results.error && <EmptyState title="No matching questions" />}
       </Card>
       {preview && (
         <Modal title={preview.title} onClose={() => setPreview(null)}>
@@ -350,9 +353,10 @@ function QuestionEditorForm({ initial }: { initial: Question }) {
 }
 export function QuestionEditor() {
   const { questionId } = useParams();
-  const { questions } = usePreview();
+  const loaded = useFullQuestion(questionId);
+  if (questionId && loaded.loading) return <ContentContainer><p className="muted">Loading question…</p></ContentContainer>;
   const question = questionId
-    ? questions.find((q) => q.id === questionId)
+    ? loaded.question
     : {
         id: "new",
         skill: "Listening" as Skill,

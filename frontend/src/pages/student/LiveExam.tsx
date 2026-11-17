@@ -18,6 +18,8 @@ export function LiveExam(){
   // One session key per page load: reloading the attempt from this page never races itself, while
   // opening it in another tab (a different key) takes the attempt over.
   const tabKey=useRef(crypto.randomUUID());
+  // Furthest Listening audio position heard; sent with every save so a reload continues rather than replays.
+  const audioPosition=useRef<{audioPart:number;audioMs:number}|undefined>(undefined);
   const pendingSignal=useRef<{body:Record<string,unknown>;revision:number;submit:boolean}|undefined>(undefined);
   const patch=useCallback((change:Partial<TestAttempt>)=>{const next=current.current&&{...current.current,...change};if(next){edit.current++;current.current=next;setAttempt(next);setSaved("Unsaved changes");}},[]);
   useEffect(()=>{let active=true;api<TestAttempt>(`/attempts/${attemptId}?session=${tabKey.current}`).then(withPassages).then(a=>{if(!active)return;current.current=a;setAttempt(a);setSeconds(a.sectionRemainingSeconds ?? a.remainingSeconds);confirmed.current={remaining:a.sectionRemainingSeconds ?? a.remainingSeconds,at:performance.now()};setSaved("Saved on server");}).catch(e=>setError(e.message));return()=>{active=false;};},[attemptId]);
@@ -26,7 +28,7 @@ export function LiveExam(){
     const a=current.current;if(!a||a.state==="Submitted"||(!submit&&!navigator.onLine))return;
     if(sending.current){if(submit||completeSection||targetSection!==undefined){setBusy(true);await new Promise(resolve=>setTimeout(resolve,50));return persist(submit,completeSection,targetSection);}return;}
     if((submit||completeSection||targetSection!==undefined)&&pendingSignal.current&&!pendingSignal.current.submit){setBusy(true);await persist(false);if(pendingSignal.current){setBusy(false);return;}return persist(submit,completeSection,targetSection);}
-    const pending=pendingSignal.current??{body:{sessionKey:a.sessionKey,sequence:(a.sequence??0)+1,answers:a.answers,section:targetSection??a.section,question:targetSection!==undefined?0:a.question,theme:a.theme,fontSize:a.fontSize,resumed:resumed.current,completeSection,hidden:document.hidden},revision:edit.current,submit};
+    const pending=pendingSignal.current??{body:{sessionKey:a.sessionKey,sequence:(a.sequence??0)+1,answers:a.answers,section:targetSection??a.section,question:targetSection!==undefined?0:a.question,theme:a.theme,fontSize:a.fontSize,resumed:resumed.current,completeSection,hidden:document.hidden,...(audioPosition.current?audioPosition.current:{})},revision:edit.current,submit};
     pendingSignal.current=pending;
     // Submitting a section closes it on the server, so inputs stay locked until that is acknowledged.
     const transitioning=pending.body.section!==a.section||!!pending.body.completeSection;
@@ -69,7 +71,7 @@ export function LiveExam(){
   if(attempt.kind!=="PRACTICE")return <div className={`test-display test-theme-${attempt.theme} test-font-${attempt.fontSize}`}>
     <TestScreen attempt={attempt} section={section as "Listening"|"Reading"|"Writing"} answers={answers} setAnswer={setAnswer} seconds={seconds} connected={connected} saved={saved} locked={locked}
       institution={platform.institutionName} candidate={students.find(s=>s.id===attempt.studentId)?.name ?? "Test taker"}
-      onSelect={question=>{if(current.current?.question!==question)patch({question});}} onSave={()=>void sendRef.current()} onSubmitSection={()=>setConfirmSection(true)} onSubmitTest={()=>setConfirm(true)} onDisplay={patch} alerts={alerts}/>
+      onSelect={question=>{if(current.current?.question!==question)patch({question});}} onSave={()=>void sendRef.current()} onSubmitSection={()=>setConfirmSection(true)} onSubmitTest={()=>setConfirm(true)} onDisplay={patch} alerts={alerts} onAudioProgress={(part,ms)=>{audioPosition.current={audioPart:part,audioMs:ms};}}/>
     {modals}</div>;
   return <div><ContentContainer>
     <div className="exam-toolbar"><div className="actions">{attempt.timed === false ? <Badge>Untimed practice</Badge> : <strong aria-label="Time remaining">{Math.floor(seconds/60)}:{String(seconds%60).padStart(2,"0")}</strong>}</div></div>

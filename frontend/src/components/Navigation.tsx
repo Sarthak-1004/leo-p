@@ -60,7 +60,7 @@ function navCounts(data: PreviewValue): Partial<Record<CountKey, string>> {
   return {
     practice: capped(data.questions.length), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
     students: String(data.statistics?.students ?? capped(data.students.length)), trainers: String(data.statistics?.trainers ?? capped(data.trainers.length)),
-    tests: String(data.tests.length), questions: capped(data.questions.length), ...(unread ? { unread: String(unread) } : {}),
+    tests: String(data.tests.length), questions: String(data.statistics?.questions ?? capped(data.questions.length)), ...(unread ? { unread: String(unread) } : {}),
   };
 }
 function NavItem({ entry, count, collapsed, close }: { entry: NavEntry; count?: string; collapsed: boolean; close?: () => void }) {
