@@ -9,7 +9,8 @@ import {platformSettings} from "./settings.js";
 import {validateMedia} from "./media-validation.js";
 export class Storage {
   private client:S3Client;
-  constructor(private config:Config) { this.client=new S3Client({region:config.S3_REGION,endpoint:config.S3_ENDPOINT,forcePathStyle:!!config.S3_ENDPOINT,credentials:config.S3_ACCESS_KEY_ID&&config.S3_SECRET_ACCESS_KEY?{accessKeyId:config.S3_ACCESS_KEY_ID,secretAccessKey:config.S3_SECRET_ACCESS_KEY}:undefined}); }
+  constructor(private config:Config) { // Checksums only when required: S3-compatible stores such as Google Cloud Storage reject the SDK's default extra checksum headers.
+    this.client=new S3Client({region:config.S3_REGION,endpoint:config.S3_ENDPOINT,forcePathStyle:!!config.S3_ENDPOINT,requestChecksumCalculation:"WHEN_REQUIRED",responseChecksumValidation:"WHEN_REQUIRED",credentials:config.S3_ACCESS_KEY_ID&&config.S3_SECRET_ACCESS_KEY?{accessKeyId:config.S3_ACCESS_KEY_ID,secretAccessKey:config.S3_SECRET_ACCESS_KEY}:undefined}); }
   private bucket(){assert(this.config.S3_BUCKET,503,"File storage is not configured");return this.config.S3_BUCKET;}
   close(){this.client.destroy();}
   // Internal worker access only; never exposed as a student URL or public bucket object.

@@ -27,6 +27,16 @@ Login limits use canonical accounts across ID/email aliases, with an additional 
 
 OPENAI_API_KEY and OPENAI_MODEL enable Writing evaluation. The example model is configurable, and OPENAI_BASE_URL supports an approved replacement endpoint. Configure project spending limits and verify rubric/output quality with client-approved essays before enabling production evaluation. Missing configuration gives an explicit failed/manual-review state; it does not fabricate scores. Automated tests exercise a deterministic provider contract, not paid live AI calls.
 
+### Google Cloud Storage instead of AWS S3
+
+The storage adapter speaks the S3 protocol, so a private Google Cloud Storage bucket works through its interoperability API:
+
+1. Create a bucket (Standard class, region near students, e.g. `asia-south1`), with uniform access and public access prevention enforced.
+2. Create a service account with the Storage Object Admin role on that bucket only, then under Cloud Storage > Settings > Interoperability create an HMAC key for it.
+3. Set `S3_ENDPOINT=https://storage.googleapis.com`, `S3_REGION=auto`, `S3_BUCKET=<bucket>`, `S3_ACCESS_KEY_ID=<HMAC access ID>` and `S3_SECRET_ACCESS_KEY=<HMAC secret>`.
+
+The client sends checksums only when required, because Google's S3 endpoint rejects the SDK's default extra checksum headers. Listening audio is streamed through the API or by two-minute signed links, so the bucket never needs public access. Verify one upload and one playback after setting the keys.
+
 ## Build and migrate
 
 ```powershell
