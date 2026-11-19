@@ -1,3 +1,4 @@
+import { WRITING_RUBRIC } from "./worker.js";
 import {platformSettings} from "./settings.js";
 import { randomUUID } from "node:crypto";
 import type { Db, Tx } from "./db.js";
@@ -210,8 +211,8 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
   const writing=blankWriting?0:null;
   const reviewStatus=a.kind==="FLT"||(hasWriting&&!blankWriting)?"Pending":"Completed";
   const r=await tx.result.create({data:{id:a.id,studentId:a.studentId,assignedTrainerId:s?.trainerId,course:a.course,testId:a.testId,kind:a.kind,name:snapshot.title,attemptNumber:a.number,minutes:Math.ceil(a.activeMs/60000),listening:bands.Listening,reading:bands.Reading,writing,overall:overall({listening:bands.Listening??null,reading:bands.Reading??null,writing,speaking:null}),rawScores:json(raw),originalScores:json({modules:[...new Set(snapshot.questions.map(q=>q.skill))],typeScores:[...typeScores.values()],questionTypes:[...new Set(snapshot.questions.map(q=>`${q.skill}/${q.questionType}`))],listening:bands.Listening,reading:bands.Reading,writing,...(blankWriting?{writingBlank:true}:{}),...(quota?{aiSkipped:quota}:{})}),aiStatus:hasWriting?(blankWriting?"Completed":autoWriting?"Pending":"Manual review"):"Completed",reviewStatus,released:a.kind !== "FLT"}});
-  if(autoWriting) await tx.evaluationJob.create({data:{resultId:r.id}});
+  if(autoWriting) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:WRITING_RUBRIC}});
   if(quota) await audit(tx,"system","Writing AI skipped: daily limit reached",r.id,{limit:quota});
-  if((a.kind === "FLT"||(hasWriting&&!blankWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
+  if((a.kind === "FLT"||(hasWriting&&!blankWriting&&!autoWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
   await audit(tx,a.studentId,"Attempt submitted",a.id,{kind:a.kind});
 }

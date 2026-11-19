@@ -55,7 +55,7 @@ export interface Result {
   version?: number;
   visible?: boolean;
   rawScores?: Record<string, {correct:number;total:number}>;
-  aiFeedback?: {output:{tasks:{task:string;criteria:Record<string,number>;feedback:string;strengths:string[];weaknesses:string[];improvements?:string[];corrections:{original:string;suggestion:string;reason:string}[]}[]};model:string;rubricVersion:string}[];
+  aiFeedback?: WritingAiFeedback[];
   reviewerId?: string;
   reviewerUntil?: string;
   evaluationDraft?: EvaluationDraft;
@@ -129,3 +129,12 @@ export interface AuditEvent { actorId?:string; id: string; action: string; targe
 export interface PlatformSettings { institutionName: string; interruptionLimit: number; leaderboard: boolean; supportEmail?:string; supportPhone?:string; supportAddress?:string; defaultAccessDays?:number; mediaLimitMb?:number; autoWritingEvaluation?:boolean; expiryReminders?:boolean; backlogNotifications?:boolean; attemptWindowHours?:number; dailyPracticeAiLimit?:number; dailyAiBudget?:number; dailyPracticeLimit?:number; }
 
 export interface PracticeRecord { id: string; studentId: string; course: Course; skill: Skill; date: string; correct: number | null; total: number | null; answers: Answers; }
+
+export type WritingAiTask = {
+  task: string;
+  criteria: Record<string, number | { band: number; remarks: string }>;
+  feedback: string; strengths: string[]; weaknesses: string[]; improvements?: string[];
+  corrections: { original: string; suggestion: string; reason: string; type?: string }[];
+  improvedParagraph?: string;
+};
+export type WritingAiFeedback = { output: { tasks: WritingAiTask[]; summary?: string; priorities?: string[] }; model: string; rubricVersion: string };
