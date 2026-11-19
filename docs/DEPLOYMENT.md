@@ -102,7 +102,7 @@ The portal runs in Google Cloud project `project-c009194e-564b-4a15-8be` (region
 
 | Part | Resource |
 |---|---|
-| API and website | Cloud Run service `leo-prep-api`: 2 vCPU, 2 GiB, 1 instance always warm, at most 2, 250 requests per instance |
+| API and website | Cloud Run service `leo-prep-api`: 2 vCPU, 2 GiB, 1 instance always warm, at most 3, 250 requests per instance |
 | Database | Cloud SQL PostgreSQL 18 `leo-prep-db` (`db-custom-1-3840`), daily backups at 02:00 IST kept 14 days, point-in-time recovery, no authorized networks (Cloud Run connects through the Cloud SQL socket) |
 | Media | Cloud Storage bucket `leo-prep-media-sb4z6x` (private) |
 | Secrets | Secret Manager: `database-url` (restricted `portal_runtime` role), `migration-database-url` (owner), `db-password`, `runtime-db-password`, `bootstrap-admin-password`, `s3-access-key-id`, `s3-secret-access-key`, `mfa-encryption-key`, `backup-encryption-key` |
@@ -118,6 +118,8 @@ gcloud builds submit . --config <cloudbuild.yaml with DOCKER_BUILDKIT=1> --subst
 gcloud run jobs update leo-prep-setup --image $img --region asia-south1; gcloud run jobs execute leo-prep-setup --region asia-south1 --wait
 gcloud run deploy leo-prep-api --image $img --region asia-south1
 ```
+
+Capacity (tested 19 November 2026 on a copy with these settings): 300 students sat one FLT at once with no errors, no lost answers and correct scores. The 1 vCPU database reached full CPU at peak, so saves slowed to 3–4 s at times. The expected maximum is 100 students at once; for larger sittings, resize the database to `db-custom-2-7680` outside exam hours (a 1–3 minute restart).
 
 BuildKit is required because the Dockerfile uses `COPY --chmod`. `.gcloudignore` keeps `.env` files, private content and local tools out of the upload. Pushing to GitHub does not deploy Google Cloud automatically yet.
 
