@@ -1,0 +1,18 @@
+# Same exclusions as .dockerignore: secrets, private content and local tooling never leave this computer.
+.gcloudignore
+.git
+.github
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/.local
+**/.test-data
+**/test-results
+**/playwright-report
+stitch-imports
+tmp
+backend/content/*
+!backend/content/README.md
+.vercel
+.railway
