@@ -3,18 +3,22 @@ import { usePreview } from "../app/PreviewContext";
 import type { PreviewValue } from "../app/context";
 import { NavLink, Link, useLocation } from "react-router";
 import { Icon } from "./Icon";
-type CountKey = "practice" | "practiceMocks" | "flts" | "students" | "trainers" | "tests" | "questions" | "unread";
+type CountKey = "practice" | "practiceTypes" | "practiceSections" | "practiceMocks" | "flts" | "students" | "trainers" | "tests" | "questions" | "unread";
 // `short` is the visible text inside narrow groups; `label` stays the accessible name.
-type NavEntry = { icon: string; label: string; to: string; count?: CountKey; short?: string };
-type NavGroup = { icon: string; label: string; items: NavEntry[] };
+// `hint` is a short description shown beside the item on hover or focus.
+type NavEntry = { icon: string; label: string; to: string; count?: CountKey; short?: string; hint?: string };
+type NavGroup = { icon: string; label: string; items: (NavEntry | NavGroup)[]; count?: CountKey };
 type NavNode = NavEntry | NavGroup;
 const link = (icon: string, label: string, to: string, count?: CountKey): NavEntry => ({ icon, label, to, count });
 const studentNavigation: NavNode[] = [
   link("dashboard", "Dashboard", "/student/dashboard"),
   { icon: "test", label: "Tests", items: [
-    link("book", "Practice", "/student/practice", "practice"),
-    { ...link("clock", "Practice Mock Tests", "/student/practice-mocks", "practiceMocks"), short: "Practice Mocks" },
-    link("test", "Full Length Tests", "/student/mock-tests", "flts"),
+    { icon: "book", label: "Learning Arena", count: "practice", items: [
+      { ...link("list-check", "Question Specific", "/student/practice/question-specific", "practiceTypes"), hint: "Practise one question type at a time." },
+      { ...link("dashboard", "Sectional", "/student/practice/sectional", "practiceSections"), hint: "Practise a whole section or passage." },
+    ] },
+    { ...link("clock", "Module Arena", "/student/practice-mocks", "practiceMocks"), hint: "Practice Mock Tests under real exam conditions." },
+    { ...link("test", "Full Length Tests", "/student/mock-tests", "flts"), hint: "Full IELTS tests your institute opens." },
   ] },
   link("bell", "Notifications", "/student/notifications", "unread"),
   link("history", "Test History", "/student/history"),
@@ -64,7 +68,7 @@ function navCounts(data: PreviewValue): Partial<Record<CountKey, string>> {
   const offered = (kind: "FLT" | "PRACTICE_MOCK") => data.tests.filter(t => t.kind === kind && t.available && t.course === data.course).length;
   const unread = data.notifications.filter(n => !n.read).length;
   return {
-    practice: capped(data.questions.length), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
+    practice: capped(data.questions.length), practiceTypes: capped(data.questions.length), practiceSections: String(new Set(data.questions.map(q => `${q.skill}/${q.section ?? ""}`)).size), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
     students: String(data.statistics?.students ?? capped(data.students.length)), trainers: String(data.statistics?.trainers ?? capped(data.trainers.length)),
     tests: String(data.tests.length), questions: String(data.statistics?.questions ?? capped(data.questions.length)), ...(unread ? { unread: String(unread) } : {}),
   };
@@ -89,25 +93,31 @@ function NavItem({ entry, count, collapsed, close }: { entry: NavEntry; count?: 
           {entry.label}
         </span>
       )}
+      {!collapsed && entry.hint && <span className="nav-hint" role="tooltip">{entry.hint}</span>}
     </NavLink>
   );
 }
-function NavSection({ group, counts, close }: { group: NavGroup; counts: Partial<Record<CountKey, string>>; close?: () => void }) {
+const leaves = (items: (NavEntry | NavGroup)[]): NavEntry[] => items.flatMap(i => "items" in i ? leaves(i.items) : [i]);
+function NavSection({ group, counts, close, nested = false }: { group: NavGroup; counts: Partial<Record<CountKey, string>>; close?: () => void; nested?: boolean }) {
   const { pathname } = useLocation();
-  const containsActive = group.items.some(item => pathname.startsWith(item.to));
+  const containsActive = leaves(group.items).some(item => pathname.startsWith(item.to));
   const [open, setOpen] = useState(true);
   // The sidebar renders in both the desktop rail and the mobile drawer, so IDs must be unique per instance.
   const id = useId();
+  const count = group.count && counts[group.count];
   return (
-    <div className="nav-group">
+    <div className={`nav-group ${nested ? "nav-subgroup" : ""}`}>
       <button type="button" className={`nav-item nav-group-toggle ${containsActive && !open ? "has-active" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
         <Icon name={group.icon} />
         <span className="sidebar-label">{group.label}</span>
+        {count && <span className="nav-count sidebar-label" aria-hidden="true">({count})</span>}
         <span className="nav-group-chevron"><Icon name="chevron" size={16} /></span>
       </button>
       {open && (
         <div className="nav-group-items" id={id}>
-          {group.items.map(item => <NavItem key={item.to} entry={item} count={item.count && counts[item.count]} collapsed={false} close={close} />)}
+          {group.items.map(item => "items" in item
+            ? <NavSection key={item.label} group={item} counts={counts} close={close} nested />
+            : <NavItem key={item.to} entry={item} count={item.count && counts[item.count]} collapsed={false} close={close} />)}
         </div>
       )}
     </div>
@@ -150,7 +160,7 @@ export function Sidebar({
         {(admin ? adminNavigation : trainer ? trainerNavigation : studentNavigation).flatMap(node =>
           "items" in node
             ? collapsed
-              ? node.items.map(item => <NavItem key={item.to} entry={item} collapsed close={close} />)
+              ? leaves(node.items).map(item => <NavItem key={item.to} entry={item} collapsed close={close} />)
               : [<NavSection key={node.label} group={node} counts={counts} close={close} />]
             : [<NavItem key={node.to} entry={node} count={node.count && counts[node.count]} collapsed={collapsed} close={close} />],
         )}

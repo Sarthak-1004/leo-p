@@ -579,6 +579,12 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("FLT questions cannot be reused in a Practice Mock Test",async()=>{
+  const flt=await fixture("FLT");const n=testNumber++,id=`fixture-${n}`;
+  const builder={questionIds:{Listening:flt.questions.filter(q=>q.skill==="Listening").slice(0,2).map(q=>q.id),Reading:[],Writing:[],Speaking:[]},duration:{Listening:30,Reading:60,Writing:60,Speaking:0}};
+  const res=await call("admin","PUT",`/api/admin/tests/GENERAL/${id}`,{id,course:"GENERAL",kind:"PRACTICE_MOCK",number:n,published:false,available:false,duration:150,builder,version:1});
+  assert.equal(res.statusCode,400,res.body);assert.match(res.json().message,/separate from all practice/);
+});
 test("student requests: raise, list own only, Admin replies with notification, withdraw open only",async()=>{
   assert.equal((await call("s1","POST","/api/requests",{type:"New feature",subject:"Hi",description:"Please add dark mode to the dashboard."})).statusCode,400);
   assert.equal((await call("trainer","POST","/api/requests",{type:"New feature",subject:"Dark mode",description:"Please add dark mode to the dashboard."})).statusCode,403);

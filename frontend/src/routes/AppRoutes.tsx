@@ -50,6 +50,8 @@ export function AppRoutes() {
       <Route element={<StudentLayout />}>
         <Route path="/student/dashboard" element={<Dashboard />} />
         <Route path="/student/practice" element={<PracticeHub />} />
+        <Route path="/student/practice/question-specific" element={<PracticeHub key="type" practiceMode="type" />} />
+        <Route path="/student/practice/sectional" element={<PracticeHub key="section" practiceMode="section" />} />
         {skills.map((skill) => (
           <Route
             key={skill}

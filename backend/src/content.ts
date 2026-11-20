@@ -39,6 +39,10 @@ export async function saveTestRecord(tx:Db|Tx,user:Identity,input:z.infer<typeof
     assert(new Set(all).size===all.length,400,"A question cannot appear twice in a test");
     const qs=await tx.question.findMany({where:{id:{in:all}}});
     assert(qs.length===all.length,400,"A selected question does not exist");
+    // FLT questions stay separate from Practice Mocks (and vice versa), so practice never previews an FLT.
+    if(all.length){const other=await tx.test.findMany({where:{kind:input.kind==="FLT"?"PRACTICE_MOCK":"FLT"},select:{id:true,course:true,builder:true}});
+      const ids=new Set(all);const clash=other.find(t=>Object.values((t.builder as any)?.questionIds??{}).flat().some((id:any)=>ids.has(id)));
+      assert(!clash,400,`A selected question is already used in ${input.kind==="FLT"?"a Practice Mock Test":"a Full Length Test"} (${clash?.course}/${clash?.id}). FLT questions must stay separate from all practice material`);}
     for(const s of ["Listening","Reading","Writing"] as const) for(const id of input.builder.questionIds[s]) {
       const q=qs.find(q=>q.id===id)!;
       assert(q.skill===s&&(q.course===input.course||q.course==="BOTH")&&!q.archived,400,"Selected question is not eligible for this section/course");

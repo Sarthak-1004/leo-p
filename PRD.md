@@ -237,6 +237,10 @@ Students report problems with questions, marking or the portal: from a result's 
 
 Students raise general requests (portal problem, improvement idea, new feature, account or access, other) with a subject and details, and track them under My requests with status and the office's reply; an open request can be withdrawn. Question-level problems stay in issue reports. Admin answers requests under Support → Student requests (Open / In review / Planned / Done / Declined with a reply) and the student is notified. Trainers have no access. Up to 10 requests per student per day.
 
+## Student test navigation (user decision 20 Nov 2026)
+
+The student Tests menu has three areas: Learning Arena (module practice, split into Question Specific — one question type at a time — and Sectional — a whole section or passage), Module Arena (the Practice Mock Tests under real exam conditions) and Full Length Tests. FLT questions stay separate from all practice material: a question used in an FLT cannot be used in a Practice Mock Test or module practice, and vice versa (enforced on the server).
+
 ## Implemented operational decisions (full-project task)
 
 The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.

@@ -72,13 +72,16 @@ export function Dashboard() {
     </ContentContainer>
   );
 }
-export function PracticeHub() {
+export function PracticeHub({ practiceMode = "type" }: { practiceMode?: "type" | "section" }) {
   const { progress, course, mode } = usePreview();
+  const sectional = practiceMode === "section";
+  const to = (skill: string) => `/student/practice/${skill.toLowerCase()}/sample?mode=${practiceMode}`;
   return (
     <ContentContainer>
       <PageHeader
-        title="Practice modules"
-        description="Focused practice for your next step forward."
+        eyebrow="Tests / Learning Arena"
+        title={sectional ? "Sectional practice" : "Question Specific practice"}
+        description={sectional ? "Practise a whole section or passage at a time." : "Practise one question type at a time, with answers and explanations."}
         actions={<Badge>{courseName(course)}</Badge>}
       />
       <div className="skill-grid">
@@ -102,7 +105,7 @@ export function PracticeHub() {
                 {mode === "demo" ? `${p.completed} / ${p.total}` : p.completed}
               </strong>
             </p>
-            {p.skill === "Speaking" ? <><Badge tone="gray">Speaking is conducted offline by your trainer.</Badge><Button disabled variant="secondary">Offline only</Button></> : <LinkButton to={`/student/practice/${p.skill.toLowerCase()}/sample`}>Start practice <Icon name="arrow" size={15} /></LinkButton>}
+            {p.skill === "Speaking" ? <><Badge tone="gray">Speaking is conducted offline by your trainer.</Badge><Button disabled variant="secondary">Offline only</Button></> : <LinkButton to={to(p.skill)}>Start practice <Icon name="arrow" size={15} /></LinkButton>}
           </Card>
         ))}
       </div>
@@ -118,7 +121,7 @@ export function PracticeHub() {
             onClick={() =>
               document
                 .querySelector<HTMLAnchorElement>(
-                  'a[href="/student/practice/writing/sample"]',
+                  'a[href^="/student/practice/writing/sample"]',
                 )
                 ?.focus()
             }

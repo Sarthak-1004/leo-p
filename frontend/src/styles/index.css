@@ -1881,3 +1881,15 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   .ai-criteria td:last-child { grid-column: 1 / -1; margin-top: 4px; }
   .ai-essay { padding: 12px; font-size: .9rem; }
 }
+
+/* Sidebar sub-groups and hover hints */
+/* Nested groups indent less and pack tighter so full names fit the 250px rail. */
+.nav-group-items .nav-group-items { margin-left: 10px; padding-left: 4px; }
+.nav-group-items .nav-group-items .nav-item { padding: 8px 6px; gap: 6px; }
+.nav-subgroup > .nav-group-toggle { min-height: 40px; padding: 8px 6px; gap: 6px; font-size: 12.5px; }
+.nav-group-items .nav-item svg, .nav-subgroup > .nav-group-toggle svg { flex-shrink: 0; }
+.nav-group-toggle .nav-count { margin-left: 2px; }
+.nav-hint { display: none; position: fixed; left: calc(var(--sidebar-width, 250px) + 10px); top: var(--tooltip-top, 80px); max-width: 260px; padding: 8px 12px; border-radius: 8px; background: #162345; color: #fff; font-size: 12.5px; font-weight: 500; line-height: 1.4; white-space: normal; box-shadow: 0 6px 16px #00155040; z-index: 60; pointer-events: none; }
+@media (hover: hover) and (min-width: 768px) {
+  .nav-item:hover .nav-hint, .nav-item:focus-visible .nav-hint { display: block; }
+}
