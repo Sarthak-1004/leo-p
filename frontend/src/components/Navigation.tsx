@@ -18,8 +18,9 @@ const studentNavigation: NavNode[] = [
       { ...link("dashboard", "Sectional", "/student/practice/sectional", "practiceSections"), hint: "Practise a whole section or passage." },
     ] },
     { ...link("clock", "Module Arena", "/student/practice-mocks", "practiceMocks"), hint: "Practice Mock Tests under real exam conditions." },
-    { ...link("test", "Full Length Tests", "/student/mock-tests", "flts"), hint: "Full IELTS tests your institute opens." },
   ] },
+  // Full Length Tests are kept apart from all practice material, so they have their own tab.
+  { ...link("trophy", "Full Length Tests", "/student/mock-tests", "flts"), hint: "Full IELTS tests your institute opens." },
   link("bell", "Notifications", "/student/notifications", "unread"),
   link("history", "Test History", "/student/history"),
   link("flag", "Issue Reports", "/student/issues"),

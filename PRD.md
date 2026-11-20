@@ -239,7 +239,7 @@ Students raise general requests (portal problem, improvement idea, new feature, 
 
 ## Student test navigation (user decision 20 Nov 2026)
 
-The student Tests menu has three areas: Learning Arena (module practice, split into Question Specific — one question type at a time — and Sectional — a whole section or passage), Module Arena (the Practice Mock Tests under real exam conditions) and Full Length Tests. FLT questions stay separate from all practice material: a question used in an FLT cannot be used in a Practice Mock Test or module practice, and vice versa (enforced on the server).
+The student Tests menu has two areas: Learning Arena (module practice, split into Question Specific — one question type at a time — and Sectional — a whole section or passage) and Module Arena (the Practice Mock Tests under real exam conditions). Full Length Tests is its own tab, outside Tests (client decision 21 Nov 2026). FLT questions stay separate from all practice material: a question used in an FLT cannot be used in a Practice Mock Test or module practice, and vice versa (enforced on the server).
 
 ## Implemented operational decisions (full-project task)
 
