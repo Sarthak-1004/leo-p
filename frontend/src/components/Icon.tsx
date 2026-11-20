@@ -29,6 +29,7 @@ const paths: Record<string, string> = {
   search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0 M15 15l6 6",
   logout: "M10 3H3v18h7 M9 12h12 M16 7l5 5-5 5",
   flame: "M12 22a7 7 0 0 0 7-7c0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-3 2-5 5-5 8a7 7 0 0 0 7 7z",
+  flag: "M5 21V4 M5 4h11l-2 4 2 4H5",
   calendar: "M3 5h18v16H3z M3 10h18 M7 2v6 M17 2v6",
   play: "M7 3l14 9-14 9z",
   pause: "M7 4v16 M17 4v16",

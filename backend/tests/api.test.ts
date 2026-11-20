@@ -579,6 +579,28 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("issue reports: students report on their own results, Admin resolves and the student is notified",async()=>{
+  const id=await submitted("PRACTICE_MOCK");
+  const snapshot=(await db.attempt.findUniqueOrThrow({where:{id}})).snapshot as any;
+  const listening=(snapshot.questions as any[]).filter(q=>q.skill==="Listening");
+  const q3=listening[2].id;
+  const bad=await call("s1","POST","/api/issues",{resultId:id,module:"Listening",type:"Wrong answer key",questionIds:["not-in-this-test"],description:"The key for this question looks wrong."});assert.equal(bad.statusCode,400);
+  assert.equal((await call("s1","POST","/api/issues",{module:"General",type:"Technical problem",questionIds:[q3],description:"Questions need a test result."})).statusCode,400);
+  assert.equal((await call("s1","POST","/api/issues",{module:"General",type:"Other",description:"short"})).statusCode,400);
+  const made=await call("s1","POST","/api/issues",{resultId:id,module:"Listening",type:"Wrong answer key",questionIds:[q3],description:"The key for question 3 does not match the audio."});
+  assert.equal(made.statusCode,200,made.body);const issue=made.json();assert.deepEqual(issue.questions,["Listening Q3"]);assert.equal(issue.status,"Open");
+  assert.equal((await call("trainer","GET","/api/issues")).statusCode,403);
+  const mine=(await call("s1","GET","/api/issues?status=Open")).json();assert.ok(mine.rows.some((r:any)=>r.id===issue.id));assert.ok(mine.rows.every((r:any)=>r.studentId==="s1"&&r.studentName===undefined));
+  const all=(await call("admin","GET","/api/issues?type=Wrong%20answer%20key")).json();const row=all.rows.find((r:any)=>r.id===issue.id);assert.ok(row?.studentName);
+  assert.equal((await call("s1","PUT",`/api/admin/issues/${issue.id}`,{status:"Resolved",adminNote:"x",version:1})).statusCode,403);
+  const before=await db.notification.count({where:{userId:"s1"}});
+  const upd=await call("admin","PUT",`/api/admin/issues/${issue.id}`,{status:"Resolved",adminNote:"Answer key corrected. Thank you.",version:1});assert.equal(upd.statusCode,200,upd.body);
+  assert.equal((await call("admin","PUT",`/api/admin/issues/${issue.id}`,{status:"Open",adminNote:"",version:1})).statusCode,409);
+  assert.equal(await db.notification.count({where:{userId:"s1"}}),before+1);
+  assert.equal((await call("s1","POST",`/api/issues/${issue.id}/withdraw`)).statusCode,400,"a resolved report cannot be withdrawn");
+  const open=(await call("s1","POST","/api/issues",{module:"General",type:"Technical problem",description:"The page froze during Reading."})).json();
+  assert.equal((await call("s1","POST",`/api/issues/${open.id}/withdraw`)).json().status,"Withdrawn");
+});
 test("student insights count only visible results and goals are validated",async()=>{
   assert.equal((await call("trainer","GET","/api/student/insights")).statusCode,403);
   const fltId=await submitted("FLT");   // unreleased FLT: its bands must stay hidden from the dashboard

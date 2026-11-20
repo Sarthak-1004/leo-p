@@ -25,6 +25,7 @@ import { Storage } from "./storage.js";
 import {reauthenticate} from "./reauth.js";
 import {securityAlert} from "./security.js";
 import {goalsSchema,saveGoals,studentInsights} from "./insights.js";
+import {issueQuery,issueSchema,issueUpdateSchema,listIssues,reportIssue,updateIssue,withdrawIssue} from "./issues.js";
 declare module "fastify" {
   interface FastifyRequest { auth?:Authenticated; }
   interface FastifyContextConfig { portalApi?:boolean;publicApi?:boolean;allowInactive?:boolean; }
@@ -158,6 +159,10 @@ export async function buildApp(db:Db,config:Config) {
   app.put("/api/admin/tests/:course/:id",async req=>{const b=testSchema.parse(req.body);assert(b.id===(req.params as any).id&&b.course===(req.params as any).course,400,"Test identifier mismatch");return saveTest(db,user(req),b);});
   app.put("/api/admin/settings",async req=>{const u=user(req);admin(u);const value=settingsSchema.parse(req.body);await transaction(db,async tx=>{await tx.platformSetting.upsert({where:{id:"platform"},create:{id:"platform",value},update:{value,version:{increment:1}}});await audit(tx,u.id,"Settings updated","platform");});return value;});
   app.post("/api/tests/:course/:id/start",async req=>startTest(db,user(req),course.parse((req.params as any).course),identifier.parse((req.params as any).id)));
+  app.get("/api/issues",async req=>listIssues(db,user(req),issueQuery.parse(req.query)));
+  app.post("/api/issues",async req=>reportIssue(db,user(req),issueSchema.parse(req.body)));
+  app.post("/api/issues/:id/withdraw",async req=>withdrawIssue(db,user(req),z.string().uuid().parse((req.params as any).id)));
+  app.put("/api/admin/issues/:id",async req=>updateIssue(db,user(req),z.string().uuid().parse((req.params as any).id),issueUpdateSchema.parse(req.body)));
   app.get("/api/student/insights",async req=>studentInsights(db,user(req),config.ACCESS_TIMEZONE));
   app.put("/api/student/goals",async req=>saveGoals(db,user(req),goalsSchema.parse(req.body)));
   app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional()}).strict().parse(req.body)));

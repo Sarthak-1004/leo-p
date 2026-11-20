@@ -76,6 +76,7 @@ model Student {
   targetBand Float?
   contacts   StudentContact?
   attempts   Attempt[]
+  issues     IssueReport[]
   @@index([trainerId])
 }
 model StudentContact {
@@ -326,4 +327,27 @@ model ImportBatch {
   rows Json
   committedAt DateTime?
   createdAt DateTime @default(now())
+}
+
+// A student's report of a problem with test content, marking or the portal; Admin reviews it.
+model IssueReport {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  course      Course
+  resultId    String?
+  testName    String   @default("")
+  module      String
+  type        String
+  questions   String[]
+  questionIds String[]
+  description String
+  status      String   @default("Open")
+  adminNote   String   @default("")
+  resolvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  version     Int      @default(1)
+  @@index([studentId, createdAt])
+  @@index([status, createdAt])
 }

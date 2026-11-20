@@ -229,6 +229,10 @@ Excluded: digital Speaking, native apps, payments, self-registration/password re
 
 The student dashboard follows a skills-analytics layout in the portal's own theme: activity chips (active days, tests taken, day streak), six skill cards (Full Length Tests, Practice Mocks, Listening, Reading, Writing, Speaking) with trend and comparison, an exam countdown with a student-set exam date and target band, an estimated band (average of the last three scored full tests, labelled as a guide), today's plan, question-type accuracy for Listening and Reading, Writing criterion bands from AI marking, and a band progress chart (1/3/6 months, with a table view). Only results the student may see are counted; unreleased FLTs never appear. Institute averages are shown only when at least five students contribute. Exam date and target band are study goals only and never affect access or scoring.
 
+## Issue reports (user decision 20 Nov 2026)
+
+Students report problems with questions, marking or the portal: from a result's details page (choosing the affected questions, numbered as they saw them) or a general report from Issue Reports. Types: wrong answer key, question or passage error, audio, image or chart, marking or score, technical, other. Students see their own reports with status and the Admin note, can filter and page them, and can withdraw a report while it is Open. Admin sees all reports (filters for status, type and course), sets Open / In review / Resolved / Rejected with a note, and the student is notified of each change. Trainers have no access. Up to 20 reports per student per day.
+
 ## Implemented operational decisions (full-project task)
 
 The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.

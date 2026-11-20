@@ -152,3 +152,14 @@ export type StudentInsights = {
   questionTypes: { module: string; questionType: string; correct: number; total: number; accuracy: number; cohortAccuracy: number | null }[];
   progress: { date: string; kind: string; name: string; listening: number | null; reading: number | null; writing: number | null; speaking: number | null; overall: number | null }[];
 };
+
+// Issue reports (student-raised, Admin-reviewed).
+export const ISSUE_TYPES = ["Wrong answer key", "Question or passage error", "Audio problem", "Image or chart problem", "Marking or score problem", "Technical problem", "Other"] as const;
+export const ISSUE_MODULES = ["Listening", "Reading", "Writing", "Speaking", "General"] as const;
+export const ISSUE_STATUSES = ["Open", "In review", "Resolved", "Rejected", "Withdrawn"] as const;
+export type IssueReport = {
+  id: string; studentId: string; studentName?: string; course: Course; resultId: string | null; testName: string;
+  module: typeof ISSUE_MODULES[number]; type: typeof ISSUE_TYPES[number]; questions: string[]; description: string;
+  status: typeof ISSUE_STATUSES[number]; adminNote: string; createdAt: string; updatedAt: string; version: number;
+};
+export type IssuePage = { count: number; page: number; open: number; rows: IssueReport[] };

@@ -86,3 +86,34 @@ a.skill-stat:focus-visible { outline: 3px solid var(--color-primary); outline-of
   .count-tiles .digits span { width: 30px; height: 42px; font-size: 1.25rem; }
   .dash-head h1 { font-size: 1.5rem; }
 }
+
+/* Issue reports */
+.issue-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+.issue-filters .field { flex: 0 1 220px; margin: 0; }
+.issue-filters select { width: 100%; }
+.issue-filters .rows-field { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--color-muted); white-space: nowrap; }
+.issue-filters .rows-field select { width: auto; min-width: 72px; }
+.issue-table td { vertical-align: top; }
+.issue-desc { max-width: 320px; margin-top: 4px; overflow-wrap: anywhere; }
+.issue-note { max-width: 260px; overflow-wrap: anywhere; }
+.issue-card { border: 1px solid #e5ebf5; border-radius: 12px; padding: 16px; background: #fafbfe; }
+.issue-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.issue-text { margin: 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.issue-edit { display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: end; margin-top: 12px; }
+.issue-edit .actions { grid-column: 1 / -1; }
+.question-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-height: 180px; overflow-y: auto; }
+.question-picks label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid #d9dfeb; border-radius: 99px; font-size: .85rem; cursor: pointer; background: #fff; }
+.question-picks label.on { background: #e8eeff; border-color: var(--color-primary-container); color: var(--color-primary); }
+.question-picks label { min-height: 0; padding: 3px 10px 3px 8px; line-height: 1.4; font-weight: 600; }
+/* The whole chip is the touch target, so the checkbox itself can be small. */
+.issue-form .question-picks label input[type="checkbox"] { accent-color: var(--color-primary-container); width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; }
+.issue-form .question-picks label { min-height: 32px; }
+@media (max-width: 600px) { .issue-edit { grid-template-columns: 1fr; } .issue-filters .field { flex: 1 1 100%; } .issue-filters .rows-field { margin-left: 0; } }
+@media (max-width: 700px) {
+  .issue-table, .issue-table tbody, .issue-table tr, .issue-table td { display: block; width: 100%; }
+  .issue-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .issue-table tr { border: 1px solid #e5ebf5; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fafbfe; }
+  .issue-table td { border: 0; padding: 4px 0; max-width: none; }
+  .issue-table td[data-label]::before { content: attr(data-label) ": "; color: var(--color-muted); font-size: .8rem; }
+  .issue-desc { max-width: none; }
+}
