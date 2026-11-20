@@ -70,3 +70,28 @@
   .arena-filters select, .arena-filters .search-field { flex: 1 1 100%; max-width: none; }
   .arena-filters > .btn { margin-left: 0; }
 }
+
+/* Sectional: books of tests, each test a column of parts */
+.arena-tabs.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.books { display: grid; gap: 22px; }
+.book { border: 1px solid #e3e8f2; border-radius: 18px; padding: 16px; background: #fff; }
+.book-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 22px; border-radius: 14px; background: var(--color-navy); color: #fff; }
+.book-head h2 { margin: 0; font: 700 1.2rem var(--font-heading); letter-spacing: .01em; }
+.book-head span { display: grid; text-align: right; font-weight: 600; font-size: .9rem; color: #cfd9f5; }
+.book-head b { color: #fff; font-size: 1rem; }
+.book-tests { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.book-test { border: 1px solid #e1e6f0; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 6px 16px -12px #1a368a40; }
+.book-test h3 { margin: 0; padding: 12px 16px; background: #e8eeff; font-size: 1rem; color: var(--color-ink); border-bottom: 1px solid #dbe3f7; }
+.book-part { display: grid; gap: 6px; width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid #edf0f6; background: #fff; font: inherit; color: var(--color-ink); text-align: left; cursor: pointer; }
+.book-part:last-child { border-bottom: 0; }
+.book-part:hover { background: #f5f8ff; }
+.book-part:focus-visible { outline: 3px solid var(--color-primary); outline-offset: -3px; }
+.book-part.status-done { background: #f4fbf7; }
+.book-part.status-progress { background: #fffaf0; }
+.book-part-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.book-part-head strong { font-size: .95rem; letter-spacing: .02em; }
+.book-part-title { font-size: .82rem; color: var(--color-muted); }
+.book-part .set-status { display: inline-flex; align-items: center; gap: 5px; font-size: .82rem; }
+@media (max-width: 1200px) { .book-tests { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .book-tests { grid-template-columns: repeat(2, minmax(0, 1fr)); } .arena-tabs.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .book-tests { grid-template-columns: 1fr; } .book { padding: 10px; } .book-head { padding: 14px 16px; } .book-head span { text-align: left; } }
