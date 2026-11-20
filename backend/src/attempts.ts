@@ -3,7 +3,7 @@ import {platformSettings} from "./settings.js";
 import { randomUUID } from "node:crypto";
 import type { Db, Tx } from "./db.js";
 import { json, lockedTransaction, transaction } from "./db.js";
-import { assert, overall, rawBand, packSnapshotQuestions, type Heartbeat, type Conversions } from "./domain.js";
+import { assert, overall, rawBand, packSnapshotQuestions, snapshotQuestions, type Heartbeat, type Conversions } from "./domain.js";
 import { audit, notify, studentOnly, digest, type Identity } from "./auth.js";
 import { attemptView } from "./views.js";
 import type { Attempt } from "./generated/prisma/client.js";
@@ -40,13 +40,15 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL"|"ACADE
     return attemptView(a,true);
   },"ReadCommitted");
 }
-export async function startPractice(db:Db,user:Identity,selection:{skill:string;mode:string;selection:string;questionId?:string}) {
+export async function startPractice(db:Db,user:Identity,selection:{skill:string;mode:string;selection:string;questionId?:string;questionIds?:string[]}) {
   studentOnly(user);
   assert(selection.skill !== "Speaking",403,"Speaking is conducted offline by your trainer");
   const {dailyPracticeLimit}=await platformSettings(db);
   const recent=await db.attempt.count({where:{studentId:user.id,kind:"PRACTICE",createdAt:{gte:new Date(Date.now()-86400000)}}});
   assert(recent<dailyPracticeLimit,429,`You have reached today's limit of ${dailyPracticeLimit} practice sessions. Try again tomorrow`);
-  let questions=await db.question.findMany({where:{...(selection.questionId?{id:selection.questionId}:{}),skill:selection.skill as any,course:{in:[user.student.course,"BOTH"]},published:true,archived:false,practiceEligible:true,...(selection.mode === "section"?{section:selection.selection}:{questionType:selection.selection})},orderBy:{id:"asc"},take:100});
+  let questions=await db.question.findMany({where:{...(selection.questionIds?.length?{id:{in:selection.questionIds}}:selection.questionId?{id:selection.questionId}:{}),skill:selection.skill as any,course:{in:[user.student.course,"BOTH"]},published:true,archived:false,practiceEligible:true,...(selection.questionIds?.length?{}:selection.mode === "section"?{section:selection.selection}:{questionType:selection.selection})},orderBy:{id:"asc"},take:100});
+  // A chosen practice set must be served whole: every requested question must be eligible for this student.
+  if(selection.questionIds?.length)assert(questions.length===new Set(selection.questionIds).size,404,"Some of these practice questions are no longer available");
   assert(questions.length,404,"No published practice content matches this selection");
   if(selection.skill === "Writing")questions=questions.slice(0,1);
   const minutes=selection.skill === "Writing" && questions[0]?.section === "Task 2"?40:20;
@@ -215,4 +217,15 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
   if(quota) await audit(tx,"system","Writing AI skipped: daily limit reached",r.id,{limit:quota});
   if((a.kind === "FLT"||(hasWriting&&!blankWriting&&!autoWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
   await audit(tx,a.studentId,"Attempt submitted",a.id,{kind:a.kind});
+}
+
+// Practice history for the Learning Arena cards: which questions each practice attempt covered and its objective score.
+export async function practiceHistory(db:Db,user:Identity){
+  studentOnly(user);
+  const attempts=await db.attempt.findMany({where:{studentId:user.id,course:user.student.course,kind:"PRACTICE"},orderBy:{createdAt:"desc"},take:300,select:{id:true,state:true,createdAt:true,snapshot:true}});
+  const results=await db.result.findMany({where:{id:{in:attempts.map(a=>a.id)}},select:{id:true,rawScores:true,writing:true,aiStatus:true}});
+  const byId=new Map(results.map(r=>[r.id,r]));
+  return attempts.map(a=>{const r=byId.get(a.id);const raw=Object.values((r?.rawScores??{}) as Record<string,{correct:number;total:number}>);
+    return {attemptId:a.id,state:a.state==="SUBMITTED"?"Completed":"In progress",date:a.createdAt.toISOString(),questionIds:snapshotQuestions(a.snapshot).map((q:any)=>q.id),
+      correct:raw.reduce((n,x)=>n+(x.correct??0),0),total:raw.reduce((n,x)=>n+(x.total??0),0),writing:r?.writing??null,aiStatus:r?.aiStatus??null};});
 }

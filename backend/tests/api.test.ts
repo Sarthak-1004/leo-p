@@ -579,6 +579,17 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("practice starts from a chosen question set and appears in practice history",async()=>{
+  const id=await freshStudent("GENERAL");
+  const qs=["set-a","set-b","set-c"].map(n=>`pq-${n}-${randomUUID().slice(0,6)}`);
+  for(const qid of qs)await db.question.create({data:{id:qid,skill:"Reading",course:"BOTH",questionType:"True/False/Not Given",section:"Passage 1",title:"Practice set",prompt:"Statement",passage:"Shared passage text",options:["TRUE","FALSE","NOT GIVEN"],answer:"TRUE",published:true,practiceEligible:true}});
+  const started=await call(id,"POST","/api/practice/start",{skill:"Reading",mode:"type",selection:"True/False/Not Given",questionIds:qs.slice(0,2)});
+  assert.equal(started.statusCode,200,started.body);assert.deepEqual(started.json().questions.map((q:any)=>q.id).sort(),qs.slice(0,2).sort());
+  assert.equal((await call(id,"POST","/api/practice/start",{skill:"Reading",mode:"type",selection:"x",questionIds:[qs[0],"not-a-practice-question"]})).statusCode,404);
+  const history=(await call(id,"GET","/api/practice/history")).json();
+  assert.ok(history.some((h:any)=>h.attemptId===started.json().id&&h.state==="In progress"&&h.questionIds.length===2));
+  assert.equal((await call("trainer","GET","/api/practice/history")).statusCode,403);
+});
 test("FLT questions cannot be reused in a Practice Mock Test",async()=>{
   const flt=await fixture("FLT");const n=testNumber++,id=`fixture-${n}`;
   const builder={questionIds:{Listening:flt.questions.filter(q=>q.skill==="Listening").slice(0,2).map(q=>q.id),Reading:[],Writing:[],Speaking:[]},duration:{Listening:30,Reading:60,Writing:60,Speaking:0}};

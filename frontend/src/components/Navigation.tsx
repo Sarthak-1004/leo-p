@@ -3,6 +3,7 @@ import { usePreview } from "../app/PreviewContext";
 import type { PreviewValue } from "../app/context";
 import { NavLink, Link, useLocation } from "react-router";
 import { Icon } from "./Icon";
+import { buildSets } from "../utils/practiceSets";
 type CountKey = "practice" | "practiceTypes" | "practiceSections" | "practiceMocks" | "flts" | "students" | "trainers" | "tests" | "questions" | "unread";
 // `short` is the visible text inside narrow groups; `label` stays the accessible name.
 // `hint` is a short description shown beside the item on hover or focus.
@@ -13,7 +14,7 @@ const link = (icon: string, label: string, to: string, count?: CountKey): NavEnt
 const studentNavigation: NavNode[] = [
   link("dashboard", "Dashboard", "/student/dashboard"),
   { icon: "test", label: "Tests", items: [
-    { icon: "book", label: "Learning Arena", count: "practice", items: [
+    { icon: "book", label: "Learning Arena", count: "practiceTypes", items: [
       { ...link("list-check", "Question Specific", "/student/practice/question-specific", "practiceTypes"), hint: "Practise one question type at a time." },
       { ...link("dashboard", "Sectional", "/student/practice/sectional", "practiceSections"), hint: "Practise a whole section or passage." },
     ] },
@@ -64,12 +65,13 @@ const trainerNavigation: NavNode[] = [
   link("user", "Profile", "/trainer/profile"),
 ];
 // Counts come from already-loaded portal data; lists capped by pagination show "+".
+const practiceOf = (data: PreviewValue) => data.questions.filter(q => q.skill !== "Speaking" && (q.course === "BOTH" || q.course === data.course));
 function navCounts(data: PreviewValue): Partial<Record<CountKey, string>> {
   const capped = (n: number) => `${n}${data.hasMore && n >= 500 ? "+" : ""}`;
   const offered = (kind: "FLT" | "PRACTICE_MOCK") => data.tests.filter(t => t.kind === kind && t.available && t.course === data.course).length;
   const unread = data.notifications.filter(n => !n.read).length;
   return {
-    practice: capped(data.questions.length), practiceTypes: capped(data.questions.length), practiceSections: String(new Set(data.questions.map(q => `${q.skill}/${q.section ?? ""}`)).size), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
+    practice: capped(data.questions.length), practiceTypes: String(buildSets(practiceOf(data), "type").length), practiceSections: String(buildSets(practiceOf(data), "section").length), practiceMocks: String(offered("PRACTICE_MOCK")), flts: String(offered("FLT")),
     students: String(data.statistics?.students ?? capped(data.students.length)), trainers: String(data.statistics?.trainers ?? capped(data.trainers.length)),
     tests: String(data.tests.length), questions: String(data.statistics?.questions ?? capped(data.questions.length)), ...(unread ? { unread: String(unread) } : {}),
   };

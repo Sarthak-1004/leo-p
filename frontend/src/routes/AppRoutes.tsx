@@ -1,3 +1,4 @@
+import { PracticeLibrary } from "../pages/student/PracticeLibrary";
 import { AdminRequests, StudentRequests } from "../pages/shared/Requests";
 import { AdminIssues, StudentIssues } from "../pages/shared/Issues";
 import {Media} from "../pages/admin/Media";
@@ -50,8 +51,8 @@ export function AppRoutes() {
       <Route element={<StudentLayout />}>
         <Route path="/student/dashboard" element={<Dashboard />} />
         <Route path="/student/practice" element={<PracticeHub />} />
-        <Route path="/student/practice/question-specific" element={<PracticeHub key="type" practiceMode="type" />} />
-        <Route path="/student/practice/sectional" element={<PracticeHub key="section" practiceMode="section" />} />
+        <Route path="/student/practice/question-specific" element={<PracticeLibrary key="type" mode="type" />} />
+        <Route path="/student/practice/sectional" element={<PracticeLibrary key="section" mode="section" />} />
         {skills.map((skill) => (
           <Route
             key={skill}

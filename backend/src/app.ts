@@ -14,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import { authenticate, active, admin, audit, digest, hashPassword, passwordNeedsRehash, notify, sessionFor, staff, studentOnly, throttle, throttleCount, verifyPassword, type Authenticated } from "./auth.js";
 import { assert, ApiError, snapshotQuestions, course, defaultSettings, heartbeatSchema, identifier, password, questionSchema, settingsSchema, roundBand } from "./domain.js";
 import { bootstrap, publicQuestion, resultView, staffAttemptView, userView } from "./views.js";
-import { forceSubmit, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
+import { forceSubmit, practiceHistory, resumeAttempt, signal, startPractice, startTest } from "./attempts.js";
 import { claim, evaluate, evaluationSchema, release } from "./evaluation.js";
 import { saveQuestion, saveTest, testSchema } from "./content.js";
 import { saveStudent, saveTrainer, studentSchema, trainerSchema } from "./accounts.js";
@@ -170,7 +170,8 @@ export async function buildApp(db:Db,config:Config) {
   app.put("/api/admin/issues/:id",async req=>updateIssue(db,user(req),z.string().uuid().parse((req.params as any).id),issueUpdateSchema.parse(req.body)));
   app.get("/api/student/insights",async req=>studentInsights(db,user(req),config.ACCESS_TIMEZONE));
   app.put("/api/student/goals",async req=>saveGoals(db,user(req),goalsSchema.parse(req.body)));
-  app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional()}).strict().parse(req.body)));
+  app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional(),questionIds:z.array(identifier).min(1).max(40).optional()}).strict().parse(req.body)));
+  app.get("/api/practice/history",async req=>practiceHistory(db,user(req)));
   app.get("/api/attempts/:id",async req=>{
     const u=user(req),id=(req.params as any).id;
     if(u.role==="STUDENT")return resumeAttempt(db,u,id,z.object({session:z.string().uuid().optional()}).parse(req.query).session);
