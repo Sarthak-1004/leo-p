@@ -30,6 +30,8 @@ const paths: Record<string, string> = {
   logout: "M10 3H3v18h7 M9 12h12 M16 7l5 5-5 5",
   flame: "M12 22a7 7 0 0 0 7-7c0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-3 2-5 5-5 8a7 7 0 0 0 7 7z",
   flag: "M5 21V4 M5 4h11l-2 4 2 4H5",
+  "file-plus": "M14 3H6v18h12V7z M14 3v4h4 M12 11v6 M9 14h6",
+  "list-check": "M4 6l2 2 3-3 M4 13l2 2 3-3 M12 7h8 M12 14h8 M12 20h8",
   calendar: "M3 5h18v16H3z M3 10h18 M7 2v6 M17 2v6",
   play: "M7 3l14 9-14 9z",
   pause: "M7 4v16 M17 4v16",

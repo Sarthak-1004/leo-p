@@ -1,3 +1,4 @@
+import { AdminRequests, StudentRequests } from "../pages/shared/Requests";
 import { AdminIssues, StudentIssues } from "../pages/shared/Issues";
 import {Media} from "../pages/admin/Media";
 import {Reports} from "../pages/admin/Reports";
@@ -72,6 +73,7 @@ export function AppRoutes() {
         />
         <Route path="/student/history" element={<TestHistory />} />
         <Route path="/student/issues" element={<StudentIssues />} />
+        <Route path="/student/requests" element={<StudentRequests />} />
         <Route path="/student/leaderboard" element={<Leaderboard />} />
         <Route path="/student/profile" element={<Profile />} />
         <Route path="/student/access-expired" element={<ExpiredAccess />} />
@@ -109,6 +111,7 @@ export function AppRoutes() {
         <Route path="/admin/results" element={<AdminResults />} />
         <Route path="/admin/reports" element={<Reports />} />
         <Route path="/admin/issues" element={<AdminIssues />} />
+        <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin/operations" element={<Operations />} />
         <Route path="/admin/settings" element={<Settings />} />
       </Route>

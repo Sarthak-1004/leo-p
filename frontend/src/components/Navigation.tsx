@@ -19,6 +19,7 @@ const studentNavigation: NavNode[] = [
   link("bell", "Notifications", "/student/notifications", "unread"),
   link("history", "Test History", "/student/history"),
   link("flag", "Issue Reports", "/student/issues"),
+  link("file-plus", "Raise a Request", "/student/requests"),
   link("trophy", "Leaderboard", "/student/leaderboard"),
   link("user", "Profile", "/student/profile"),
 ];
@@ -37,7 +38,10 @@ const adminNavigation: NavNode[] = [
   { icon: "chart", label: "Results", items: [
     link("check", "Results", "/admin/results"),
     link("chart", "Reports", "/admin/reports"),
+  ] },
+  { icon: "flag", label: "Support", items: [
     link("flag", "Issue reports", "/admin/issues"),
+    link("file-plus", "Student requests", "/admin/requests"),
   ] },
   link("bell", "Notifications", "/admin/notifications", "unread"),
   { icon: "settings", label: "System", items: [

@@ -77,6 +77,7 @@ model Student {
   contacts   StudentContact?
   attempts   Attempt[]
   issues     IssueReport[]
+  requests   SupportRequest[]
   @@index([trainerId])
 }
 model StudentContact {
@@ -345,6 +346,24 @@ model IssueReport {
   status      String   @default("Open")
   adminNote   String   @default("")
   resolvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  version     Int      @default(1)
+  @@index([studentId, createdAt])
+  @@index([status, createdAt])
+}
+
+// A student's general request: portal problem, improvement idea or feature request; Admin replies.
+model SupportRequest {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  course      Course
+  type        String
+  subject     String
+  description String
+  status      String   @default("Open")
+  adminNote   String   @default("")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   version     Int      @default(1)

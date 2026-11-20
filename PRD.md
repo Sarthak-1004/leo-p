@@ -233,6 +233,10 @@ The student dashboard follows a skills-analytics layout in the portal's own them
 
 Students report problems with questions, marking or the portal: from a result's details page (choosing the affected questions, numbered as they saw them) or a general report from Issue Reports. Types: wrong answer key, question or passage error, audio, image or chart, marking or score, technical, other. Students see their own reports with status and the Admin note, can filter and page them, and can withdraw a report while it is Open. Admin sees all reports (filters for status, type and course), sets Open / In review / Resolved / Rejected with a note, and the student is notified of each change. Trainers have no access. Up to 20 reports per student per day.
 
+## Raise a request (user decision 20 Nov 2026)
+
+Students raise general requests (portal problem, improvement idea, new feature, account or access, other) with a subject and details, and track them under My requests with status and the office's reply; an open request can be withdrawn. Question-level problems stay in issue reports. Admin answers requests under Support → Student requests (Open / In review / Planned / Done / Declined with a reply) and the student is notified. Trainers have no access. Up to 10 requests per student per day.
+
 ## Implemented operational decisions (full-project task)
 
 The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.

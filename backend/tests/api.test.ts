@@ -579,6 +579,20 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("student requests: raise, list own only, Admin replies with notification, withdraw open only",async()=>{
+  assert.equal((await call("s1","POST","/api/requests",{type:"New feature",subject:"Hi",description:"Please add dark mode to the dashboard."})).statusCode,400);
+  assert.equal((await call("trainer","POST","/api/requests",{type:"New feature",subject:"Dark mode",description:"Please add dark mode to the dashboard."})).statusCode,403);
+  const made=await call("s1","POST","/api/requests",{type:"New feature",subject:"Dark mode for the dashboard",description:"Please add a dark theme for studying at night."});assert.equal(made.statusCode,200,made.body);const r=made.json();
+  assert.equal((await call("trainer","GET","/api/requests")).statusCode,403);
+  const mine=(await call("s1","GET","/api/requests")).json();assert.ok(mine.rows.some((x:any)=>x.id===r.id)&&mine.rows.every((x:any)=>x.studentId==="s1"));
+  assert.ok((await call("admin","GET","/api/requests?type=New%20feature")).json().rows.find((x:any)=>x.id===r.id)?.studentName);
+  const before=await db.notification.count({where:{userId:"s1"}});
+  assert.equal((await call("admin","PUT",`/api/admin/requests/${r.id}`,{status:"Planned",adminNote:"Planned for next month.",version:1})).statusCode,200);
+  assert.equal(await db.notification.count({where:{userId:"s1"}}),before+1);
+  assert.equal((await call("s1","POST",`/api/requests/${r.id}/withdraw`)).statusCode,400);
+  const open=(await call("s1","POST","/api/requests",{type:"Portal problem",subject:"Slow page",description:"Test history takes long to open."})).json();
+  assert.equal((await call("s1","POST",`/api/requests/${open.id}/withdraw`)).json().status,"Withdrawn");
+});
 test("issue reports: students report on their own results, Admin resolves and the student is notified",async()=>{
   const id=await submitted("PRACTICE_MOCK");
   const snapshot=(await db.attempt.findUniqueOrThrow({where:{id}})).snapshot as any;

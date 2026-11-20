@@ -163,3 +163,12 @@ export type IssueReport = {
   status: typeof ISSUE_STATUSES[number]; adminNote: string; createdAt: string; updatedAt: string; version: number;
 };
 export type IssuePage = { count: number; page: number; open: number; rows: IssueReport[] };
+
+// General student requests (portal problems, ideas, features), answered by Admin.
+export const REQUEST_TYPES = ["Portal problem", "Improvement idea", "New feature", "Account or access", "Other"] as const;
+export const REQUEST_STATUSES = ["Open", "In review", "Planned", "Done", "Declined", "Withdrawn"] as const;
+export type SupportRequest = {
+  id: string; studentId: string; studentName?: string; course: Course; type: typeof REQUEST_TYPES[number]; subject: string; description: string;
+  status: typeof REQUEST_STATUSES[number]; adminNote: string; createdAt: string; updatedAt: string; version: number;
+};
+export type RequestPage = { count: number; page: number; open: number; rows: SupportRequest[] };

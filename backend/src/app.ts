@@ -26,6 +26,7 @@ import {reauthenticate} from "./reauth.js";
 import {securityAlert} from "./security.js";
 import {goalsSchema,saveGoals,studentInsights} from "./insights.js";
 import {issueQuery,issueSchema,issueUpdateSchema,listIssues,reportIssue,updateIssue,withdrawIssue} from "./issues.js";
+import {listRequests,raiseRequest,requestQuery,requestSchema,requestUpdateSchema,updateRequest,withdrawRequest} from "./requests.js";
 declare module "fastify" {
   interface FastifyRequest { auth?:Authenticated; }
   interface FastifyContextConfig { portalApi?:boolean;publicApi?:boolean;allowInactive?:boolean; }
@@ -159,6 +160,10 @@ export async function buildApp(db:Db,config:Config) {
   app.put("/api/admin/tests/:course/:id",async req=>{const b=testSchema.parse(req.body);assert(b.id===(req.params as any).id&&b.course===(req.params as any).course,400,"Test identifier mismatch");return saveTest(db,user(req),b);});
   app.put("/api/admin/settings",async req=>{const u=user(req);admin(u);const value=settingsSchema.parse(req.body);await transaction(db,async tx=>{await tx.platformSetting.upsert({where:{id:"platform"},create:{id:"platform",value},update:{value,version:{increment:1}}});await audit(tx,u.id,"Settings updated","platform");});return value;});
   app.post("/api/tests/:course/:id/start",async req=>startTest(db,user(req),course.parse((req.params as any).course),identifier.parse((req.params as any).id)));
+  app.get("/api/requests",async req=>listRequests(db,user(req),requestQuery.parse(req.query)));
+  app.post("/api/requests",async req=>raiseRequest(db,user(req),requestSchema.parse(req.body)));
+  app.post("/api/requests/:id/withdraw",async req=>withdrawRequest(db,user(req),z.string().uuid().parse((req.params as any).id)));
+  app.put("/api/admin/requests/:id",async req=>updateRequest(db,user(req),z.string().uuid().parse((req.params as any).id),requestUpdateSchema.parse(req.body)));
   app.get("/api/issues",async req=>listIssues(db,user(req),issueQuery.parse(req.query)));
   app.post("/api/issues",async req=>reportIssue(db,user(req),issueSchema.parse(req.body)));
   app.post("/api/issues/:id/withdraw",async req=>withdrawIssue(db,user(req),z.string().uuid().parse((req.params as any).id)));
