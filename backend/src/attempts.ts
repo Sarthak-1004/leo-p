@@ -1,3 +1,4 @@
+import { SPEAKING_RUBRIC, recordingKeyPrefix } from "./speaking.js";
 import { WRITING_RUBRIC } from "./worker.js";
 import {platformSettings} from "./settings.js";
 import { randomUUID } from "node:crypto";
@@ -42,7 +43,6 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL"|"ACADE
 }
 export async function startPractice(db:Db,user:Identity,selection:{skill:string;mode:string;selection:string;questionId?:string;questionIds?:string[]}) {
   studentOnly(user);
-  assert(selection.skill !== "Speaking",403,"Speaking is conducted offline by your trainer");
   const {dailyPracticeLimit}=await platformSettings(db);
   const recent=await db.attempt.count({where:{studentId:user.id,kind:"PRACTICE",createdAt:{gte:new Date(Date.now()-86400000)}}});
   assert(recent<dailyPracticeLimit,429,`You have reached today's limit of ${dailyPracticeLimit} practice sessions. Try again tomorrow`);
@@ -197,11 +197,16 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
     bands[module]=rawBand(correct,module,a.course,snapshot.conversions,questions.length);
   }
   const hasWriting=snapshot.questions.some(q=>q.skill === "Writing");
+  // Practice Speaking: answers are the student's own recording ids; a blank practice scores 0 without an AI call.
+  const hasSpeaking=a.kind==="PRACTICE"&&snapshot.questions.some(q=>q.skill==="Speaking");
+  const recordings=hasSpeaking?Object.entries(answers).filter(([k,v])=>k.startsWith("Speaking:")&&!k.includes(":flag:")&&v).map(([,v])=>v):[];
+  if(recordings.length){const owned=await tx.asset.count({where:{id:{in:recordings},key:{startsWith:recordingKeyPrefix(a.studentId,a.id)}}});assert(owned===new Set(recordings).size,400,"A recording does not belong to this practice");}
+  const blankSpeaking=hasSpeaking&&!recordings.length;
   // Blank module-practice Writing scores 0 without a paid AI call (full tests keep staff review).
   const blankWriting=a.kind==="PRACTICE"&&hasWriting&&!hasText(answers);
   const s=await tx.student.findUnique({where:{id:a.studentId},select:{trainerId:true}});
   const settings=await platformSettings(tx);
-  let autoWriting=hasWriting&&!blankWriting&&settings.autoWritingEvaluation;
+  let autoWriting=((hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking))&&settings.autoWritingEvaluation;
   let quota="";
   if(autoWriting){
     const since=new Date(Date.now()-86400000);
@@ -211,11 +216,12 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
     if(quota)autoWriting=false;
   }
   const writing=blankWriting?0:null;
-  const reviewStatus=a.kind==="FLT"||(hasWriting&&!blankWriting)?"Pending":"Completed";
-  const r=await tx.result.create({data:{id:a.id,studentId:a.studentId,assignedTrainerId:s?.trainerId,course:a.course,testId:a.testId,kind:a.kind,name:snapshot.title,attemptNumber:a.number,minutes:Math.ceil(a.activeMs/60000),listening:bands.Listening,reading:bands.Reading,writing,overall:overall({listening:bands.Listening??null,reading:bands.Reading??null,writing,speaking:null}),rawScores:json(raw),originalScores:json({modules:[...new Set(snapshot.questions.map(q=>q.skill))],typeScores:[...typeScores.values()],questionTypes:[...new Set(snapshot.questions.map(q=>`${q.skill}/${q.questionType}`))],listening:bands.Listening,reading:bands.Reading,writing,...(blankWriting?{writingBlank:true}:{}),...(quota?{aiSkipped:quota}:{})}),aiStatus:hasWriting?(blankWriting?"Completed":autoWriting?"Pending":"Manual review"):"Completed",reviewStatus,released:a.kind !== "FLT"}});
-  if(autoWriting) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:WRITING_RUBRIC}});
+  const speaking=blankSpeaking?0:null;
+  const reviewStatus=a.kind==="FLT"||(hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking)?"Pending":"Completed";
+  const r=await tx.result.create({data:{id:a.id,studentId:a.studentId,assignedTrainerId:s?.trainerId,course:a.course,testId:a.testId,kind:a.kind,name:snapshot.title,attemptNumber:a.number,minutes:Math.ceil(a.activeMs/60000),listening:bands.Listening,reading:bands.Reading,writing,speaking,overall:overall({listening:bands.Listening??null,reading:bands.Reading??null,writing,speaking}),rawScores:json(raw),originalScores:json({modules:[...new Set(snapshot.questions.map(q=>q.skill))],typeScores:[...typeScores.values()],questionTypes:[...new Set(snapshot.questions.map(q=>`${q.skill}/${q.questionType}`))],listening:bands.Listening,reading:bands.Reading,writing,...(blankWriting?{writingBlank:true}:{}),...(quota?{aiSkipped:quota}:{})}),aiStatus:hasWriting?(blankWriting?"Completed":autoWriting?"Pending":"Manual review"):"Completed",reviewStatus,released:a.kind !== "FLT"}});
+  if(autoWriting) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:hasSpeaking?SPEAKING_RUBRIC:WRITING_RUBRIC}});
   if(quota) await audit(tx,"system","Writing AI skipped: daily limit reached",r.id,{limit:quota});
-  if((a.kind === "FLT"||(hasWriting&&!blankWriting&&!autoWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
+  if((a.kind === "FLT"||(((hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking))&&!autoWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
   await audit(tx,a.studentId,"Attempt submitted",a.id,{kind:a.kind});
 }
 

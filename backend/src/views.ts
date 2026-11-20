@@ -40,7 +40,7 @@ export async function bootstrap(db: Db, user: Identity, offset=0, limit=500, tim
     db.student.findMany({ where:isStudent ? {id:user.id} : {}, select: user.role === "ADMIN" ? {...academicSelect,contacts:true} : academicSelect, orderBy:{id:"asc"}, skip:offset,take:limit+1 }),
     isStudent ? Promise.resolve([]) : db.user.findMany({ where:{role:"TRAINER"}, select:{id:true,name:true,email:true,enabled:true},orderBy:{name:"asc"},skip:offset,take:limit+1 }),
     db.test.findMany({ where:isStudent ? {course:user.student!.course} : {},orderBy:[{course:"asc"},{number:"asc"}] }),
-    !isStudent?Promise.resolve([]):db.question.findMany({ where:isStudent ? {course:{in:[user.student!.course,"BOTH"]},skill:{not:"Speaking"},published:true,archived:false,practiceEligible:true} : {},orderBy:{id:"asc"},skip:offset,take:limit+1 }),
+    !isStudent?Promise.resolve([]):db.question.findMany({ where:isStudent ? {course:{in:[user.student!.course,"BOTH"]},published:true,archived:false,practiceEligible:true} : {},orderBy:{id:"asc"},skip:offset,take:limit+1 }),
     // AI feedback is repeated only for a student's own results; staff read it on the marksheet.
     db.result.findMany({ where:isStudent ? {studentId:user.id,course:user.student!.course} : {},include:{ jobs:{where:{state:"COMPLETED",...(isStudent?{}:{id:{in:[]}})},select:{state:true,output:true,model:true,rubricVersion:true}} },orderBy:{date:"desc"},skip:offset,take:limit+1 }),
     // Attempt summaries only: the snapshot (the whole paper) is not needed for a dashboard.

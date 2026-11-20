@@ -24,6 +24,7 @@ import {reports,reportQuery} from "./reports.js";
 import { Storage } from "./storage.js";
 import {reauthenticate} from "./reauth.js";
 import {securityAlert} from "./security.js";
+import {uploadRecording} from "./speaking.js";
 import {goalsSchema,saveGoals,studentInsights} from "./insights.js";
 import {issueQuery,issueSchema,issueUpdateSchema,listIssues,reportIssue,updateIssue,withdrawIssue} from "./issues.js";
 import {listRequests,raiseRequest,requestQuery,requestSchema,requestUpdateSchema,updateRequest,withdrawRequest} from "./requests.js";
@@ -53,7 +54,7 @@ export async function buildApp(db:Db,config:Config) {
   // Route-level hooks run after global authentication hooks in Fastify. Run the
   // same limiter here first; its request marker prevents counting twice later.
   app.addHook("onRequest",app.rateLimit());
-  await app.register(helmet,{contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'","data:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],mediaSrc:["'self'","https:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],connectSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}});
+  await app.register(helmet,{contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'","data:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],mediaSrc:["'self'","blob:","https:",...(config.S3_ENDPOINT?[new URL(config.S3_ENDPOINT).origin]:[])],connectSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}});
   await app.register(multipart,{limits:{files:1,fileSize:20*1024*1024,fields:4,parts:5}});
   const storage=new Storage(config);
   app.addHook("onClose",async()=>storage.close());
@@ -170,8 +171,9 @@ export async function buildApp(db:Db,config:Config) {
   app.put("/api/admin/issues/:id",async req=>updateIssue(db,user(req),z.string().uuid().parse((req.params as any).id),issueUpdateSchema.parse(req.body)));
   app.get("/api/student/insights",async req=>studentInsights(db,user(req),config.ACCESS_TIMEZONE));
   app.put("/api/student/goals",async req=>saveGoals(db,user(req),goalsSchema.parse(req.body)));
-  app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional(),questionIds:z.array(identifier).min(1).max(40).optional()}).strict().parse(req.body)));
+  app.post("/api/practice/start",async req=>startPractice(db,user(req),z.object({skill:z.enum(["Listening","Reading","Writing","Speaking"]),mode:z.enum(["type","section"]),selection:z.string().trim().min(1).max(100),questionId:identifier.optional(),questionIds:z.array(identifier).min(1).max(40).optional()}).strict().parse(req.body)));
   app.get("/api/practice/history",async req=>practiceHistory(db,user(req)));
+  app.post("/api/attempts/:id/recordings/:questionId",async req=>{const u=user(req);const part=await req.file();assert(part,400,"Choose a recording");const p=req.params as any;return uploadRecording(db,storage,u,z.string().uuid().parse(p.id),identifier.parse(p.questionId),await part.toBuffer());});
   app.get("/api/attempts/:id",async req=>{
     const u=user(req),id=(req.params as any).id;
     if(u.role==="STUDENT")return resumeAttempt(db,u,id,z.object({session:z.string().uuid().optional()}).parse(req.query).session);

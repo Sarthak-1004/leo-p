@@ -18,6 +18,7 @@ import { parseImport,previewImport,confirmImport,csvExport } from "../src/import
 import {maintain} from "../src/maintenance.js";
 import {today} from "../src/domain.js";
 import { writingInput, runWritingJob } from "../src/worker.js";
+import { Storage } from "../src/storage.js";
 let db:Db, app:Awaited<ReturnType<typeof buildApp>>, pg:EmbeddedPostgres;
 const secret=`Test-only-${randomUUID()}`;
 const dbName=`kanan_test_${randomUUID().replaceAll("-","")}`;
@@ -589,6 +590,36 @@ test("practice starts from a chosen question set and appears in practice history
   const history=(await call(id,"GET","/api/practice/history")).json();
   assert.ok(history.some((h:any)=>h.attemptId===started.json().id&&h.state==="In progress"&&h.questionIds.length===2));
   assert.equal((await call("trainer","GET","/api/practice/history")).statusCode,403);
+});
+test("practice Speaking: record, submit, Gemini marks the audio; recordings stay private and FLTs refuse them",async()=>{
+  const id=await freshStudent("GENERAL"),other=await freshStudent("GENERAL");
+  const qid=`spk-${randomUUID().slice(0,8)}`;
+  await db.question.create({data:{id:qid,skill:"Speaking",course:"BOTH",questionType:"Part 1",section:"Part 1",title:"Hometown 1",prompt:"Where is your hometown?",options:[],answer:"",published:true,practiceEligible:true}});
+  const started=await call(id,"POST","/api/practice/start",{skill:"Speaking",mode:"section",selection:"Part 1",questionIds:[qid]});assert.equal(started.statusCode,200,started.body);let a=started.json();
+  // One second of 16 kHz mono 16-bit silence as a WAV file.
+  const pcm=Buffer.alloc(32000),wav=Buffer.alloc(44);wav.write("RIFF",0);wav.writeUInt32LE(36+pcm.length,4);wav.write("WAVEfmt ",8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write("data",36);wav.writeUInt32LE(pcm.length,40);
+  const upload=async(who:string,attemptId:string,question:string,body:Buffer)=>{const boundary="----spk";const form=Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n`),body,Buffer.from(`\r\n--${boundary}--\r\n`)]);const ident=identities.get(who)!;
+    return app.inject({method:"POST",url:`/api/attempts/${attemptId}/recordings/${question}`,headers:{origin,cookie:ident.cookie,"x-csrf-token":ident.csrf,"content-type":`multipart/form-data; boundary=${boundary}`},payload:form});};
+  // Valid audio passes validation and reaches storage (not configured in tests); the stored recording is created directly.
+  assert.equal((await upload(id,a.id,qid,Buffer.concat([wav,pcm]))).statusCode,503);
+  const assetId=(await db.asset.create({data:{key:`recordings/${id}/${a.id}/${qid}.wav`,filename:"recording.wav",contentType:"audio/wav",size:wav.length+pcm.length,uploadedBy:id}})).id;
+  assert.equal((await upload(id,a.id,qid,Buffer.from("not audio at all, definitely not"))).statusCode,400);
+  const flt=await fixture("FLT");const fltStart=(await call(id,"POST",`/api/tests/GENERAL/${flt.id}/start`)).json();
+  assert.equal((await upload(id,fltStart.id,flt.questions[0]!.id,Buffer.concat([wav,pcm]))).statusCode,403,"FLT Speaking stays offline");
+  assert.equal((await call(other,"GET",`/api/assets/${assetId}/stream`)).statusCode,404,"another student cannot play this recording");
+  const sent=await call(id,"POST",`/api/attempts/${a.id}/submit`,{...payload(a,{[`Speaking:${qid}`]:assetId}),section:0});assert.equal(sent.statusCode,200,sent.body);
+  const job=await db.evaluationJob.findFirstOrThrow({where:{resultId:a.id}});assert.equal(job.rubricVersion,"leo-speaking-v1");
+  await db.evaluationJob.updateMany({where:{state:{in:["PENDING","RUNNING"]},id:{not:job.id}},data:{state:"FAILED"}});
+  const originalFetch=globalThis.fetch;const sentBodies:any[]=[];
+  globalThis.fetch=async(input:any,init?:any)=>{const url=String(input);if(url.includes("metadata.google.internal"))return new Response(JSON.stringify({access_token:"t"}),{status:200});sentBodies.push(JSON.parse(init.body));
+    const out={questions:[{questionId:qid,transcript:"My hometown are Pune, it is very nice city.",corrections:[{original:"hometown are",suggestion:"hometown is",reason:"Singular subject",type:"Grammar"},{original:"invented words",suggestion:"x",reason:"x",type:"Grammar"}]}],criteria:{fluency:{band:6,remarks:"r"},lexical:{band:6,remarks:"r"},grammar:{band:5,remarks:"r"},pronunciation:{band:7,remarks:"r"}},feedback:"f",strengths:["s"],improvements:["i"],summary:"sum",priorities:["p"]};
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(out)}]}}]}),{status:200});};
+  const realBytes=Storage.prototype.recordingBytes;Storage.prototype.recordingBytes=async(_db:any,ids:string[])=>ids.map(i=>({id:i,data:Buffer.concat([wav,pcm])}));
+  try{await runWritingJob(db,loadConfig({NODE_ENV:"test",DATABASE_URL:"postgresql://unused",AI_PROVIDER:"vertex",VERTEX_PROJECT:"p",VERTEX_MODEL:"gemini-test"}));}finally{globalThis.fetch=originalFetch;Storage.prototype.recordingBytes=realBytes;}
+  assert.ok(sentBodies[0].contents[0].parts.some((p:any)=>p.inlineData?.mimeType==="audio/wav"),"the recording is sent as audio");
+  const r=await db.result.findUniqueOrThrow({where:{id:a.id}});assert.equal(r.speaking,6);assert.deepEqual(r.speakingCriteria,{fluency:6,lexical:6,grammar:5,pronunciation:7});assert.equal(r.reviewStatus,"Completed");
+  const out=(await db.evaluationJob.findUniqueOrThrow({where:{id:job.id}})).output as any;assert.deepEqual(out.questions[0].corrections.map((c:any)=>c.original),["hometown are"]);
+  assert.notEqual((await call(id,"GET",`/api/assets/${assetId}/stream`)).statusCode,404,"the student may replay their own recording (storage is absent in tests)");
 });
 test("FLT questions cannot be reused in a Practice Mock Test",async()=>{
   const flt=await fixture("FLT");const n=testNumber++,id=`fixture-${n}`;

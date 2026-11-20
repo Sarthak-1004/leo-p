@@ -1,3 +1,4 @@
+import {SpeakingPractice} from "../../components/SpeakingPractice";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {useParams} from "react-router";
 import {usePreview} from "../../app/PreviewContext";
@@ -77,7 +78,7 @@ export function LiveExam(){
     <div className="exam-toolbar"><div className="actions">{attempt.timed === false ? <Badge>Untimed practice</Badge> : <strong aria-label="Time remaining">{Math.floor(seconds/60)}:{String(seconds%60).padStart(2,"0")}</strong>}</div></div>
     <PageHeader title={attempt.name??"Assessment"} description={`${section} / Attempt ${attempt.number}`} actions={<Badge>{saved}</Badge>}/>
     {alerts}
-    <fieldset disabled={locked} className="border-0 p-0 min-w-0">{section==="Writing"?<WritingEditor course={course} drafts={answers} setDraft={setAnswer} prompts={attempt.questions?.filter(q=>q.skill==="Writing")} selectedTask={attempt.question===1?"Task 2":"Task 1"} onTaskChange={task=>patch({question:task==="Task 2"?1:0})} onlyTask={attempt.questions?.[0]?.section}/>:<ObjectivePractice skill={section} course={course} answers={answers} setAnswer={setAnswer} practice questionsOverride={attempt.questions?.filter(q=>q.skill===section)} selectedQuestion={attempt.question} onQuestionChange={question=>{if(current.current?.question!==question)patch({question});}}/>}</fieldset>
+    <fieldset disabled={locked} className="border-0 p-0 min-w-0">{section==="Speaking"?<SpeakingPractice attemptId={attempt.id} questions={attempt.questions?.filter(q=>q.skill==="Speaking")??[]} answers={answers} setAnswer={setAnswer} locked={locked}/>:section==="Writing"?<WritingEditor course={course} drafts={answers} setDraft={setAnswer} prompts={attempt.questions?.filter(q=>q.skill==="Writing")} selectedTask={attempt.question===1?"Task 2":"Task 1"} onTaskChange={task=>patch({question:task==="Task 2"?1:0})} onlyTask={attempt.questions?.[0]?.section}/>:<ObjectivePractice skill={section} course={course} answers={answers} setAnswer={setAnswer} practice questionsOverride={attempt.questions?.filter(q=>q.skill===section)} selectedQuestion={attempt.question} onQuestionChange={question=>{if(current.current?.question!==question)patch({question});}}/>}</fieldset>
     <p className="muted text-xs">{attempt.interruptions} interruptions. The server controls saved time.</p><div className="actions"><Button variant="secondary" disabled={!connected||busy} onClick={()=>void sendRef.current()}>Save answers</Button><Button disabled={!connected||busy} onClick={()=>setConfirm(true)}>Submit test</Button></div>
     {modals}
   </ContentContainer></div>;

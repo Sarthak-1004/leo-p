@@ -11,8 +11,8 @@ export function deploymentConfig(environment) {
   return {version:3,routes:[
     {src:"/.*",headers:{
       "X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin",
-      "Permissions-Policy":"camera=(), microphone=(), geolocation=()",
-      "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' https:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "Permissions-Policy":"camera=(), microphone=(self), geolocation=()",
+      "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: https:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     },continue:true},
     {src:"^(/api(?:/.*)?)$",dest:`${backend.origin}$1`,headers:{"Cache-Control":"no-store","CDN-Cache-Control":"no-store","Vercel-CDN-Cache-Control":"no-store","x-vercel-enable-rewrite-caching":"0"}},
     {src:"/assets/.*",headers:{"Cache-Control":"public, max-age=31536000, immutable"},continue:true},

@@ -241,6 +241,10 @@ Students raise general requests (portal problem, improvement idea, new feature, 
 
 The student Tests menu has two areas: Learning Arena (module practice, split into Question Specific — one question type at a time — and Sectional — a whole section or passage) and Module Arena (the Practice Mock Tests under real exam conditions). Full Length Tests is its own tab, outside Tests (client decision 21 Nov 2026). FLT questions stay separate from all practice material: a question used in an FLT cannot be used in a Practice Mock Test or module practice, and vice versa (enforced on the server).
 
+## Practice Speaking (client decision 21 Nov 2026)
+
+Speaking is enabled in all practice and disabled only in Full Length Tests. In Learning Arena a student passes a speaker and microphone check, then answers each question aloud (Part 1 up to 45 s per answer, Part 2 one minute to prepare and up to two minutes, Part 3 up to 90 s); each answer is recorded in the browser as WAV and uploaded privately. After submission Gemini returns a transcript of each answer, whole-number bands with remarks for Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy and Pronunciation, the Speaking band (average of the four, rounded to the nearest half band), highlighted corrections and guidance. The student can replay their own recordings; other students cannot. FLT Speaking remains an offline trainer assessment and the server refuses recordings for any non-practice attempt. Speaking in Practice Mock Tests follows next.
+
 ## Implemented operational decisions (full-project task)
 
 The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.

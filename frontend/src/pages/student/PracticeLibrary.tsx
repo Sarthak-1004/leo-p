@@ -6,6 +6,7 @@ import { api } from "../../services/api";
 import { Button, ContentContainer, EmptyState, Modal } from "../../components/ui";
 import { Icon } from "../../components/Icon";
 import { Pagination } from "../../components/Pagination";
+import { DeviceCheck } from "../../components/DeviceCheck";
 import type { Question, TestAttempt } from "../../types/domain";
 import { buildBooks, buildSets, DIFFICULTY, tabOf, type Mode, type PracticeSet, type Tab } from "../../utils/practiceSets";
 
@@ -56,9 +57,9 @@ export function PracticeLibrary({ mode }: { mode: Mode }) {
   const [tab, setTab] = useState<Tab>("Listening"), [search, setSearch] = useState(""), [difficulty, setDifficulty] = useState(""), [status, setStatus] = useState("");
   const [order, setOrder] = useState<"az" | "za">("az"), [part, setPart] = useState(""), [type, setType] = useState(""), [moreTypes, setMoreTypes] = useState(false);
   const [page, setPage] = useState(1), [size, setSize] = useState(20), [chosen, setChosen] = useState<PracticeSet | null>(null);
-  const [history, setHistory] = useState<History[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [history, setHistory] = useState<History[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(""), [devicesReady, setDevicesReady] = useState(false);
   useEffect(() => { if (portal !== "live") return; const c = new AbortController(); api<History[]>("/practice/history", { signal: c.signal }).then(setHistory).catch(() => {}); return () => c.abort(); }, [portal]);
-  const practice = useMemo(() => questions.filter(q => q.skill !== "Speaking" && (q.course === "BOTH" || q.course === course)), [questions, course]);
+  const practice = useMemo(() => questions.filter(q => q.course === "BOTH" || q.course === course), [questions, course]);
   const tabs = mode === "section" ? SECTION_TABS : TABS;
   const tabFor = useCallback((q: Question): Tab => mode === "section" && q.skill === "Writing" ? "Writing" : tabOf(q), [mode]);
   const counts = useMemo(() => Object.fromEntries(tabs.map(t => [t.tab, buildSets(practice.filter(q => tabFor(q) === t.tab), mode).length])), [practice, mode, tabs, tabFor]);
@@ -87,8 +88,8 @@ export function PracticeLibrary({ mode }: { mode: Mode }) {
   return <ContentContainer>
     <nav className="crumbs" aria-label="Breadcrumb"><span>Tests</span><span aria-hidden="true">»</span><span>Learning Arena</span><span aria-hidden="true">»</span><strong aria-current="page">{mode === "type" ? "Question Specific" : "Sectional"}</strong></nav>
     <div className={`arena-tabs ${mode === "section" ? "four" : ""}`} role="tablist" aria-label="Skill">{tabs.map(t => <button type="button" role="tab" key={t.tab} aria-selected={tab === t.tab} className={`arena-tab arena-${t.tone}`} onClick={() => pick(t.tab)}>
-      <span className="arena-tab-icon"><Icon name={t.icon} /></span><span className="arena-tab-label">{t.tab}</span>{t.tab !== "Speaking" && <span className="arena-count">{counts[t.tab]}</span>}</button>)}</div>
-    {tab === "Speaking" ? <section className="card arena-offline"><Icon name="mic" size={28} /><div><h2>Speaking is assessed offline</h2><p className="muted">Your trainer conducts the Speaking test with you in person and enters your marks. Practise speaking aloud with a partner or your trainer; nothing is recorded in the portal.</p></div></section> : <>
+      <span className="arena-tab-icon"><Icon name={t.icon} /></span><span className="arena-tab-label">{t.tab}</span><span className="arena-count">{counts[t.tab]}</span></button>)}</div>
+    {<>
       <section className="card arena-filters">
         <label className="search-field"><Icon name="search" size={16} /><input aria-label="Search by title" placeholder="Search by title" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></label>
         <select aria-label="Difficulty" value={difficulty} onChange={e => { setDifficulty(e.target.value); setPage(1); }}><option value="">Difficulty</option>{["Easy", "Medium", "Hard"].map(d => <option key={d}>{d}</option>)}</select>
@@ -123,9 +124,11 @@ export function PracticeLibrary({ mode }: { mode: Mode }) {
           <li>Module: {chosen.skill}{chosen.section ? ` · ${chosen.section}` : ""}</li>
           <li>{chosen.questions.length} {chosen.questions.length === 1 ? "question" : "questions"}{mode === "type" && chosen.skill !== "Writing" ? ` · ${chosen.type}` : ""}</li>
           {chosen.skill === "Listening" && <li>Audio controls: pause, replay and speed 1x / 1.5x / 2x are allowed in practice</li>}
+          {chosen.skill === "Speaking" && <li>You record each answer (Part 2: 1 minute to prepare, up to 2 minutes to speak). The AI marks Fluency, Vocabulary, Grammar and Pronunciation and shows a transcript.</li>}
           <li>Answers and explanations appear after you submit. Practise again as often as you like within your daily practice limit.</li>
         </ul>
-        <Button onClick={() => void start(chosen)} disabled={busy}>{busy ? "Starting…" : statusOf(chosen, history).tone === "progress" ? "Resume practice" : "Start practice now"}</Button>
+        {chosen.skill === "Speaking" && statusOf(chosen, history).tone !== "progress" && <DeviceCheck onReady={setDevicesReady} />}
+        <Button onClick={() => void start(chosen)} disabled={busy || (chosen.skill === "Speaking" && statusOf(chosen, history).tone !== "progress" && !devicesReady)}>{busy ? "Starting…" : statusOf(chosen, history).tone === "progress" ? "Resume practice" : "Start practice now"}</Button>
       </div>
     </Modal>}
   </ContentContainer>;

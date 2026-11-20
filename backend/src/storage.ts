@@ -33,13 +33,25 @@ export class Storage {
     await audit(db,user.id,"Media uploaded",asset.id,{contentType,size:body.length});
     return {id:asset.id,filename:asset.filename,contentType,size:body.length};
   }
+  // A student's own practice Speaking recording (validated by the caller), stored privately.
+  async putRecording(db:Db,user:Identity,key:string,body:Buffer) {
+    await this.client.send(new PutObjectCommand({Bucket:this.bucket(),Key:key,Body:body,ContentType:"audio/wav"}));
+    const asset=await db.asset.create({data:{key,filename:"recording.wav",contentType:"audio/wav",size:body.length,uploadedBy:user.id}});
+    return {id:asset.id,size:body.length};
+  }
+  async recordingBytes(db:Db,ids:string[]){
+    const assets=await db.asset.findMany({where:{id:{in:ids}}});
+    const out:{id:string;data:Buffer}[]=[];
+    for(const a of assets){assert(a.key.startsWith("recordings/"),400,"Not a Speaking recording");const object=await this.client.send(new GetObjectCommand({Bucket:this.bucket(),Key:a.key}));assert(object.Body,503,"A recording is unavailable");out.push({id:a.id,data:Buffer.from(await object.Body.transformToByteArray())});}
+    return out;
+  }
   async readUrl(db:Db,user:Identity,id:string) {
     const asset=await db.asset.findUnique({where:{id}});assert(asset,404,"Media not found");
-    if(user.role === "STUDENT") {
-      const practice=await db.question.findFirst({where:{assetIds:{has:id},course:{in:[user.student!.course,"BOTH"]},published:true,archived:false,practiceEligible:true,skill:{not:"Speaking"}},select:{id:true}});
+    if(user.role === "STUDENT" && !asset.key.startsWith(`recordings/${user.id}/`)) {
+      const practice=await db.question.findFirst({where:{assetIds:{has:id},course:{in:[user.student!.course,"BOTH"]},published:true,archived:false,practiceEligible:true},select:{id:true}});
       const attempts=practice?[]:await db.attempt.findMany({where:{studentId:user.id,course:user.student!.course},select:{snapshot:true,state:true,section:true,id:true,result:{select:{released:true,kind:true}}}});
       // In-progress tests expose only the open section's media, matching the questions sent.
-      assert(practice||attempts.some(a=>{const s=a.snapshot as any;const open=s.skill??["Listening","Reading","Writing"][a.section];return s.questions?.some((q:any)=>q.skill!=="Speaking"&&q.assetIds?.includes(id)&&(a.state==="IN_PROGRESS"?q.skill===open:a.result?.released||a.result?.kind!=="FLT"));}),404,"Media not found");
+      assert(practice||attempts.some(a=>{const s=a.snapshot as any;const open=s.skill??["Listening","Reading","Writing"][a.section];return s.questions?.some((q:any)=>(q.skill!=="Speaking"||s.skill==="Speaking")&&q.assetIds?.includes(id)&&(a.state==="IN_PROGRESS"?q.skill===open:a.result?.released||a.result?.kind!=="FLT"));}),404,"Media not found");
     }
     await this.client.send(new HeadObjectCommand({Bucket:this.bucket(),Key:asset.key}));
     return {url:await getSignedUrl(this.client,new GetObjectCommand({Bucket:this.bucket(),Key:asset.key}),{expiresIn:120}),expiresIn:120,contentType:asset.contentType};
