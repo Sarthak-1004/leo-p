@@ -579,6 +579,23 @@ test("Admin question search filters by skill, course, section and text, and reso
   const academic=await call("admin","GET",`/api/admin/questions?skill=Reading&course=ACADEMIC&search=${f.id}`);assert.equal(academic.json().count,0);
   const ids=await call("admin","GET",`/api/admin/questions?ids=${f.questions[0]!.id},${f.questions[81]!.id}`);assert.deepEqual(ids.json().rows.map((q:any)=>q.id).sort(),[f.questions[0]!.id,f.questions[81]!.id].sort());
 });
+test("student insights count only visible results and goals are validated",async()=>{
+  assert.equal((await call("trainer","GET","/api/student/insights")).statusCode,403);
+  const fltId=await submitted("FLT");   // unreleased FLT: its bands must stay hidden from the dashboard
+  const mockId=await submitted("PRACTICE_MOCK");
+  await db.result.update({where:{id:mockId},data:{listening:6,reading:7,writing:6,overall:6.5}});
+  const res=await call("s1","GET","/api/student/insights");assert.equal(res.statusCode,200,res.body);const body=res.json();
+  assert.ok(body.activity.activeDays>=1&&body.activity.streak>=1&&body.activity.testsGiven>=2);
+  assert.ok(body.progress.some((p:any)=>p.kind==="PRACTICE_MOCK"));
+  const releasedFlts=await db.result.count({where:{studentId:"s1",course:"GENERAL",kind:"FLT",released:true}});
+  assert.equal(body.progress.filter((p:any)=>p.kind==="FLT").length,releasedFlts,"only released FLTs appear");
+  assert.ok(!JSON.stringify(body).includes(fltId));
+  assert.ok(body.questionTypes.every((t:any)=>t.cohortAccuracy===null||typeof t.cohortAccuracy==="number"));
+  assert.equal((await call("s1","PUT","/api/student/goals",{examDate:"2027-03-15",targetBand:7.5})).statusCode,200);
+  assert.deepEqual((await call("s1","GET","/api/student/insights")).json().goals,{examDate:"2027-03-15",targetBand:7.5});
+  for(const bad of [{examDate:"15/03/2027",targetBand:7},{examDate:null,targetBand:7.25},{examDate:null,targetBand:3}])assert.equal((await call("s1","PUT","/api/student/goals",bad)).statusCode,400);
+  assert.equal((await call("s1","PUT","/api/student/goals",{examDate:null,targetBand:null})).statusCode,200);
+});
 test("Admin loads one full question; staff bootstrap leaves out questions and score history",async()=>{
   const f=await fixture();const id=f.questions[0]!.id;
   assert.equal((await call("trainer","GET",`/api/admin/questions/${id}`)).statusCode,403);

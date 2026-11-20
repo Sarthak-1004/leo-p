@@ -71,6 +71,9 @@ model Student {
   startDate  String
   expiryDate String
   trainerId  String?
+  // Student-set study goals for the dashboard countdown; never used for access or scoring.
+  examDate   String?
+  targetBand Float?
   contacts   StudentContact?
   attempts   Attempt[]
   @@index([trainerId])

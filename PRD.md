@@ -225,6 +225,10 @@ The SOW delivery phases are discovery/design; core platform; practice/tests; eva
 
 Excluded: digital Speaking, native apps, payments, self-registration/password reset, webcam proctoring/browser lockdown, certificates, multi-branch/batch/parent reporting, AI tutor/personalized recommendations, external messaging, manual test pause, individual unlock credits/extra attempts, and speed controls in full tests.
 
+## Student dashboard (user decision 20 Nov 2026)
+
+The student dashboard follows a skills-analytics layout in the portal's own theme: activity chips (active days, tests taken, day streak), six skill cards (Full Length Tests, Practice Mocks, Listening, Reading, Writing, Speaking) with trend and comparison, an exam countdown with a student-set exam date and target band, an estimated band (average of the last three scored full tests, labelled as a guide), today's plan, question-type accuracy for Listening and Reading, Writing criterion bands from AI marking, and a band progress chart (1/3/6 months, with a table view). Only results the student may see are counted; unreleased FLTs never appear. Institute averages are shown only when at least five students contribute. Exam date and target band are study goals only and never affect access or scoring.
+
 ## Implemented operational decisions (full-project task)
 
 The user authorized full implementation using replaceable defaults on 27 October 2026. The default stack is Node 24/TypeScript/Fastify, Prisma 7/PostgreSQL, private S3-compatible storage and an optional OpenAI Responses Writing adapter. Keys, provider endpoints/model and database URL stay server-side and configurable.

@@ -138,3 +138,17 @@ export type WritingAiTask = {
   improvedParagraph?: string;
 };
 export type WritingAiFeedback = { output: { tasks: WritingAiTask[]; summary?: string; priorities?: string[] }; model: string; rubricVersion: string };
+
+// Student dashboard analytics from /api/student/insights (visible results only).
+export type SkillSummary = { band: number | null; count: number };
+export type StudentInsights = {
+  goals: { examDate: string | null; targetBand: number | null };
+  activity: { activeDays: number; streak: number; testsGiven: number; today: string[] };
+  estimatedBand: number | null;
+  tests: { flt: { done: number; available: number }; practiceMock: { done: number; available: number } };
+  skills: { listening: SkillSummary; reading: SkillSummary; writing: SkillSummary; speaking: number | null };
+  writingTasks: Record<string, { scripts: number; band: number | null; criteria: Record<string, number | null> }>;
+  cohort: { students: number; listening: number | null; reading: number | null; writing: number | null };
+  questionTypes: { module: string; questionType: string; correct: number; total: number; accuracy: number; cohortAccuracy: number | null }[];
+  progress: { date: string; kind: string; name: string; listening: number | null; reading: number | null; writing: number | null; speaking: number | null; overall: number | null }[];
+};
