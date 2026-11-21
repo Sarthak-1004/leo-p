@@ -607,7 +607,7 @@ test("practice Speaking: record, submit, Gemini marks the audio; recordings stay
   const flt=await fixture("FLT");const fltStart=(await call(id,"POST",`/api/tests/GENERAL/${flt.id}/start`)).json();
   assert.equal((await upload(id,fltStart.id,flt.questions[0]!.id,Buffer.concat([wav,pcm]))).statusCode,403,"FLT Speaking stays offline");
   assert.equal((await call(other,"GET",`/api/assets/${assetId}/stream`)).statusCode,404,"another student cannot play this recording");
-  const sent=await call(id,"POST",`/api/attempts/${a.id}/submit`,{...payload(a,{[`Speaking:${qid}`]:assetId}),section:0});assert.equal(sent.statusCode,200,sent.body);
+  const sent=await call(id,"POST",`/api/attempts/${a.id}/submit`,{...payload(a,{[`Speaking:${qid}`]:assetId}),section:a.section});assert.equal(sent.statusCode,200,sent.body);
   const job=await db.evaluationJob.findFirstOrThrow({where:{resultId:a.id}});assert.equal(job.rubricVersion,"leo-speaking-v1");
   await db.evaluationJob.updateMany({where:{state:{in:["PENDING","RUNNING"]},id:{not:job.id}},data:{state:"FAILED"}});
   const originalFetch=globalThis.fetch;const sentBodies:any[]=[];
@@ -620,6 +620,32 @@ test("practice Speaking: record, submit, Gemini marks the audio; recordings stay
   const r=await db.result.findUniqueOrThrow({where:{id:a.id}});assert.equal(r.speaking,6);assert.deepEqual(r.speakingCriteria,{fluency:6,lexical:6,grammar:5,pronunciation:7});assert.equal(r.reviewStatus,"Completed");
   const out=(await db.evaluationJob.findUniqueOrThrow({where:{id:job.id}})).output as any;assert.deepEqual(out.questions[0].corrections.map((c:any)=>c.original),["hometown are"]);
   assert.notEqual((await call(id,"GET",`/api/assets/${assetId}/stream`)).statusCode,404,"the student may replay their own recording (storage is absent in tests)");
+});
+test("Practice Mock Speaking: opens after Writing, records only then, two AI jobs; FLTs refuse an online Speaking section",async()=>{
+  const id=await freshStudent("GENERAL");const f=await fixture();
+  const spk=await db.question.create({data:{id:`${f.id}-Speaking-0`,skill:"Speaking",course:"BOTH",questionType:"Part 1",section:"Part 1",title:"Work",prompt:"Do you work or study?",options:[],answer:"",published:true}});
+  const t=await db.test.findUniqueOrThrow({where:{course_id:{course:"GENERAL",id:f.id}}});const b=t.builder as any;
+  await db.test.update({where:{course_id:{course:"GENERAL",id:f.id}},data:{builder:json({questionIds:{...b.questionIds,Speaking:[spk.id]},duration:{...b.duration,Speaking:12}})}});
+  const started=await call(id,"POST",`/api/tests/GENERAL/${f.id}/start`);assert.equal(started.statusCode,200,started.body);let a=started.json();
+  assert.equal(a.remainingBySection.Speaking,12*60000);
+  const boundary="----spk",wav=Buffer.alloc(44+3200);wav.write("RIFF",0);wav.write("WAVE",8);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);
+  const up=()=>{const ident=identities.get(id)!;return app.inject({method:"POST",url:`/api/attempts/${a.id}/recordings/${spk.id}`,headers:{origin,cookie:ident.cookie,"x-csrf-token":ident.csrf,"content-type":`multipart/form-data; boundary=${boundary}`},payload:Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n`),wav,Buffer.from(`\r\n--${boundary}--\r\n`)])});};
+  assert.equal((await up()).statusCode,409,"no recording before the Speaking section opens");
+  for(const section of [0,1,2]){const r=await call(id,"POST",`/api/attempts/${a.id}/heartbeat`,{...payload(a,section===2?{[`Writing:${f.id}-Task2`]:"An essay about cities."}:{}),section,completeSection:true});assert.equal(r.statusCode,200,r.body);a=r.json().attempt;}
+  assert.equal(a.state,"In progress");assert.equal(a.section,3,"Speaking opens after Writing");
+  assert.equal((await up()).statusCode,503,"recording accepted in the Speaking section (storage absent in tests)");
+  const assetId=(await db.asset.create({data:{key:`recordings/${id}/${a.id}/${spk.id}.wav`,filename:"recording.wav",contentType:"audio/wav",size:wav.length,uploadedBy:id}})).id;
+  const sent=await call(id,"POST",`/api/attempts/${a.id}/submit`,{...payload(a,{[`Speaking:${spk.id}`]:assetId}),section:3});assert.equal(sent.statusCode,200,sent.body);
+  const jobs=await db.evaluationJob.findMany({where:{resultId:a.id}});assert.deepEqual(jobs.map(j=>j.rubricVersion).sort(),["leo-speaking-v1","leo-writing-v2"]);
+  assert.equal((await db.result.findUniqueOrThrow({where:{id:a.id}})).speaking,null);
+  await db.result.update({where:{id:a.id},data:{writing:6}});
+  assert.equal((await call(id,"GET",`/api/results/${a.id}`)).statusCode,409,"a mock with Speaking stays hidden until Speaking is marked");
+  await db.result.update({where:{id:a.id},data:{speaking:6.5}});
+  assert.equal((await call(id,"GET",`/api/results/${a.id}`)).json().writing,6);
+  await db.evaluationJob.updateMany({where:{resultId:a.id},data:{state:"FAILED"}});
+  const flt=await fixture("FLT");const ft=await db.test.findUniqueOrThrow({where:{course_id:{course:"GENERAL",id:flt.id}}});const fb=ft.builder as any;
+  const res=await call("admin","PUT",`/api/admin/tests/GENERAL/${flt.id}`,{id:flt.id,course:"GENERAL",kind:"FLT",number:ft.number,published:false,available:false,duration:150,builder:{questionIds:{...fb.questionIds,Speaking:[spk.id]},duration:{...fb.duration,Speaking:12}},version:ft.version});
+  assert.equal(res.statusCode,400,res.body);
 });
 test("FLT questions cannot be reused in a Practice Mock Test",async()=>{
   const flt=await fixture("FLT");const n=testNumber++,id=`fixture-${n}`;

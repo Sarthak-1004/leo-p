@@ -10,7 +10,7 @@ export function publicQuestion(q: Question | Record<string, any>, includeKey = f
   return { id, skill, course, questionType, section, difficulty, title, prompt, passage, options, assetIds, published, archived, version, practiceEligible, ...(includeKey ? { answer:q.answer, explanation } : {}) };
 }
 // Students receive only the open section's questions; later sections stay on the server.
-const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: any) => (snapshot.questions ?? []).filter((q: any) => snapshot.skill || (a.state === "IN_PROGRESS" && q.skill === ["Listening","Reading","Writing"][a.section]));
+const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: any) => (snapshot.questions ?? []).filter((q: any) => snapshot.skill || (a.state === "IN_PROGRESS" && q.skill === ["Listening","Reading","Writing","Speaking"][a.section]));
 export function staffAttemptView(a: Attempt) {
   const snapshot = a.snapshot as any;
   const { sessionKey: _, ...view } = attemptView(a);
@@ -21,12 +21,12 @@ export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt[
   const snapshot = a.snapshot as any;
   // The open section's passages travel once, keyed by index; each question carries only its passageRef.
   const open = includeContent ? openQuestions(a, snapshot) : [], refs = [...new Set(open.map((q: any) => q.passageRef).filter((r: any) => r !== undefined))];
-  return { submittedSections:a.submittedSections, id:a.id, testId:a.testId, studentId:a.studentId, course:a.course, kind:a.kind, number:a.number, state:a.state === "IN_PROGRESS" ? "In progress" : "Submitted", remainingSeconds:Math.ceil(a.remainingMs/1000), remainingBySection:a.remainingBySection, sectionRemainingSeconds:Math.ceil(((a.remainingBySection as any)[["Listening","Reading","Writing"][a.section]!]??a.remainingMs)/1000), section:a.section, question:a.question, answers:a.answers, theme:a.theme, fontSize:a.fontSize, audioPart:a.audioPart, audioMs:a.audioMs, interruptions:a.interruptions, flagged:a.flagged, sequence:a.sequence, sessionKey:a.sessionKey,
+  return { submittedSections:a.submittedSections, id:a.id, testId:a.testId, studentId:a.studentId, course:a.course, kind:a.kind, number:a.number, state:a.state === "IN_PROGRESS" ? "In progress" : "Submitted", remainingSeconds:Math.ceil(a.remainingMs/1000), remainingBySection:a.remainingBySection, sectionRemainingSeconds:Math.ceil(((a.remainingBySection as any)[["Listening","Reading","Writing","Speaking"][a.section]!]??a.remainingMs)/1000), section:a.section, question:a.question, answers:a.answers, theme:a.theme, fontSize:a.fontSize, audioPart:a.audioPart, audioMs:a.audioMs, interruptions:a.interruptions, flagged:a.flagged, sequence:a.sequence, sessionKey:a.sessionKey,
     ...(includeContent ? { questions:open.map((q:any) => ({ ...publicQuestion(q), ...(q.passageRef !== undefined ? { passageRef:q.passageRef } : {}) })), ...(refs.length ? { passages:Object.fromEntries(refs.map(r => [r, snapshot.passages?.[r as number] ?? ""])) } : {}), name:snapshot.title, practiceSkill:snapshot.skill, timed:!snapshot.untimed } : {}) };
 }
 export function resultView(result: Result & { revisions?: ScoreRevision[]; jobs?: any[] }, user: Identity) {
   const internal = user.role !== "STUDENT";
-  const visible = internal || (result.kind === "FLT" ? result.released : result.kind === "PRACTICE" || (result.listening !== null && result.reading !== null && result.writing !== null));
+  const visible = internal || (result.kind === "FLT" ? result.released : result.kind === "PRACTICE" || (result.listening !== null && result.reading !== null && result.writing !== null && (result.speaking !== null || !((result.originalScores as any)?.modules ?? []).includes("Speaking"))));
   const base = { modules:(result.originalScores as any)?.modules??(result.kind==="PRACTICE"?[result.name.split(" ")[0]]:["Listening","Reading","Writing"]), id:result.id, studentId:result.studentId, course:result.course, testId:result.testId, kind:result.kind, name:result.name, attemptNumber:result.attemptNumber, date:result.date.toISOString(), minutes:result.minutes, released:result.released, reviewStatus:result.reviewStatus, aiStatus:result.aiStatus, visible };
   if (!visible) return { ...base, listening:null, reading:null, writing:null, speaking:null, overall:null };
   return { ...base, listening:result.listening, reading:result.reading, writing:result.writing, speaking:result.speaking, overall:overall(result), remarks:result.remarks, speakingCriteria:result.speakingCriteria, speakingDate:result.speakingDate, rawScores:result.rawScores,

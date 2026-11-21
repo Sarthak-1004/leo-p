@@ -15,10 +15,11 @@ export const recordingKeyPrefix = (studentId: string, attemptId: string) => `rec
 export async function uploadRecording(db: Db, storage: Storage, user: Identity, attemptId: string, questionId: string, body: Buffer) {
   studentOnly(user);
   await throttle(db, `recordings:${user.id}`, 120, 3600);
-  const a = await db.attempt.findUnique({ where: { id: attemptId }, select: { studentId: true, state: true, kind: true, snapshot: true } });
+  const a = await db.attempt.findUnique({ where: { id: attemptId }, select: { studentId: true, state: true, kind: true, snapshot: true, section: true } });
   assert(a && a.studentId === user.id, 404, "Attempt not found");
   assert(a.state === "IN_PROGRESS", 409, "This practice has already been submitted");
-  assert(a.kind === "PRACTICE", 403, "Speaking is recorded only in practice. Full Length Test Speaking is assessed offline");
+  assert(a.kind !== "FLT", 403, "Speaking is recorded only in practice. Full Length Test Speaking is assessed offline");
+  assert(a.kind === "PRACTICE" || a.section === 3, 409, "Recordings can be made only while the Speaking section is open");
   const q = snapshotQuestions(a.snapshot).find((x: any) => x.id === questionId);
   assert(q && q.skill === "Speaking", 400, "This question is not a Speaking question in this practice");
   assert(body.length >= 44 && body.toString("ascii", 0, 4) === "RIFF" && body.toString("ascii", 8, 12) === "WAVE", 400, "Recordings must be WAV audio");

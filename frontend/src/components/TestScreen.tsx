@@ -1,3 +1,5 @@
+import { DeviceCheck } from "./DeviceCheck";
+import { SpeakingPractice } from "./SpeakingPractice";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { Answers, Question, TestAttempt } from "../types/domain";
@@ -10,7 +12,7 @@ import "../styles/test-screen.css";
 
 // Computer-delivered test layout for Practice Mocks and FLTs: header, part banner,
 // grouped questions with inline gaps, part/question navigator and section submission.
-type Section = "Listening" | "Reading" | "Writing";
+type Section = "Listening" | "Reading" | "Writing" | "Speaking";
 type Item = { q: Question; index: number; number: number; stem: string; instructions: string };
 type Group = { part: string; instructions: string; items: Item[]; chips?: string[] };
 const choiceSets = [["True", "False", "Not Given"], ["Yes", "No", "Not Given"]];
@@ -64,7 +66,11 @@ export function TestScreen(props: {
   const part = writing ? parts[current]! : (items[current] ? partOf(items[current]!) : parts[0] ?? "");
   const select = (index: number) => { if (index !== attempt.question) props.onSelect(index); };
   const focusQuestion = (index: number) => { select(index); requestAnimationFrame(() => document.getElementById(`q-${index}`)?.focus()); };
-  const last = section === "Writing";
+  // Practice Mocks may add an online Speaking section after Writing; FLT Speaking is offline.
+  const steps: Section[] = ["Listening", "Reading", "Writing", ...(attempt.remainingBySection && "Speaking" in attempt.remainingBySection ? ["Speaking" as const] : [])];
+  const speaking = section === "Speaking";
+  const [devicesReady, setDevicesReady] = useState(false);
+  const last = section === steps[steps.length - 1];
   const finish = last ? "Submit test" : `Submit ${section} section`;
   const minutes = Math.ceil(props.seconds / 60);
 
@@ -127,7 +133,9 @@ export function TestScreen(props: {
   };
 
   const partItems = items.filter(it => partOf(it) === part);
-  const banner = writing
+  const banner = speaking
+    ? ["Speaking", "Record your answer to each question. Parts 1 to 3."]
+    : writing
     ? [part, `You should spend about ${part === "Task 1" ? 20 : 40} minutes on this task. Write at least ${part === "Task 1" ? 150 : 250} words.`]
     : [part, `${section === "Listening" ? "Listen" : "Read the text"} and answer questions ${partItems.length ? range(partItems) : ""}.`];
   const prompt = writing ? questions.find(q => q.section === part) : undefined;
@@ -153,7 +161,7 @@ export function TestScreen(props: {
       <div className="cbt-time">
         <h1 className="cbt-test-name">{attempt.name ?? "Assessment"}</h1>
         <strong aria-label="Time remaining" role="timer">{props.seconds >= 60 ? `${minutes} minutes left` : `${props.seconds} seconds left`}</strong>
-        <nav className="cbt-steps" aria-label="Exam sections (opened in order)">{(["Listening", "Reading", "Writing"] as const).map(s =>
+        <nav className="cbt-steps" aria-label="Exam sections (opened in order)">{steps.map(s =>
           <button type="button" key={s} disabled={s !== section} aria-current={s === section ? "step" : undefined}>{s}</button>)}</nav>
       </div>
       <div className="cbt-tools">
@@ -176,6 +184,8 @@ export function TestScreen(props: {
       <div className="cbt-banner"><strong>{banner[0]}</strong><span>{banner[1]}</span></div>
       {props.alerts}
       {section === "Listening" && <ListeningPlayer assetIds={audio} startPart={attempt.audioPart ?? 0} startMs={attempt.audioMs ?? 0} volume={volume} onProgress={props.onAudioProgress} onStatus={setAudioStatus} />}
+      {speaking ? (devicesReady ? <fieldset className="cbt-fieldset cbt-speaking" disabled={locked}><SpeakingPractice attemptId={attempt.id} questions={questions} answers={answers} setAnswer={setAnswer} locked={locked} /></fieldset>
+        : <div className="cbt-speaking"><p>Check your speakers and microphone before you start.</p><DeviceCheck onReady={setDevicesReady} /></div>) :
       <fieldset className="cbt-fieldset" disabled={locked}>
         {writing ? <div className="cbt-split">
           <div className="cbt-pane"><p className="cbt-prompt" data-annotate={prompt ? textKey("task", prompt.prompt) : undefined}>{prompt?.prompt ?? "No prompt supplied for this task."}</p>{prompt?.assetIds?.map(id => <img key={id} src={`/api/assets/${id}/stream`} alt={`${part} figure`} className="cbt-figure" />)}</div>
@@ -186,15 +196,15 @@ export function TestScreen(props: {
           <div className="cbt-pane cbt-passage" tabIndex={0} aria-label="Reading passage">{passages.length ? passages.map((p, i) => <div key={i} className="cbt-text" data-annotate={textKey("passage", p ?? "")}>{p}</div>) : <p>No passage has been supplied.</p>}</div>
           <div className="cbt-pane">{groups.filter(g => g.part === part).map(renderGroup)}</div>
         </div> : <div className="cbt-single">{groups.filter(g => g.part === part).map(renderGroup)}</div>}
-      </fieldset>
+      </fieldset>}
     </div>
 
-    <div className="cbt-arrows">
+    {!speaking && <div className="cbt-arrows">
       <button type="button" aria-label="Previous question" disabled={current <= 0} onClick={() => go(current - 1)}><Icon name="arrow" /></button>
       <button type="button" aria-label="Next question" disabled={current >= total - 1} onClick={() => go(current + 1)}><Icon name="arrow" /></button>
-    </div>
+    </div>}
     <nav className="cbt-nav" aria-label="Question navigator">
-      <div className="cbt-parts">{parts.map(p => {
+      <div className="cbt-parts">{speaking ? <div className="cbt-part active"><strong>Speaking</strong><span>{questions.filter(q => answers[q.id]).length} of {questions.length} recorded</span></div> : parts.map(p => {
         const these = writing ? [] : items.filter(it => partOf(it) === p);
         const done = writing ? (wordCount(answers[p] ?? "") ? 1 : 0) : these.filter(it => answers[it.q.id]).length;
         const first = writing ? parts.indexOf(p) : these[0]?.index ?? 0;

@@ -51,7 +51,7 @@ export class Storage {
       const practice=await db.question.findFirst({where:{assetIds:{has:id},course:{in:[user.student!.course,"BOTH"]},published:true,archived:false,practiceEligible:true},select:{id:true}});
       const attempts=practice?[]:await db.attempt.findMany({where:{studentId:user.id,course:user.student!.course},select:{snapshot:true,state:true,section:true,id:true,result:{select:{released:true,kind:true}}}});
       // In-progress tests expose only the open section's media, matching the questions sent.
-      assert(practice||attempts.some(a=>{const s=a.snapshot as any;const open=s.skill??["Listening","Reading","Writing"][a.section];return s.questions?.some((q:any)=>(q.skill!=="Speaking"||s.skill==="Speaking")&&q.assetIds?.includes(id)&&(a.state==="IN_PROGRESS"?q.skill===open:a.result?.released||a.result?.kind!=="FLT"));}),404,"Media not found");
+      assert(practice||attempts.some(a=>{const s=a.snapshot as any;const open=s.skill??["Listening","Reading","Writing","Speaking"][a.section];return s.questions?.some((q:any)=>(q.skill!=="Speaking"||s.skill==="Speaking")&&q.assetIds?.includes(id)&&(a.state==="IN_PROGRESS"?q.skill===open:a.result?.released||a.result?.kind!=="FLT"));}),404,"Media not found");
     }
     await this.client.send(new HeadObjectCommand({Bucket:this.bucket(),Key:asset.key}));
     return {url:await getSignedUrl(this.client,new GetObjectCommand({Bucket:this.bucket(),Key:asset.key}),{expiresIn:120}),expiresIn:120,contentType:asset.contentType};

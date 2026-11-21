@@ -2,8 +2,8 @@ import { z } from "zod";
 import { transaction, json, type Db, type Tx } from "./db.js";
 import { admin, audit, notify, type Identity } from "./auth.js";
 import { assert, course, identifier, questionSchema, validateConversions, defaultConversions, FLT_COUNT } from "./domain.js";
-const sectionIds=z.object({Listening:z.array(identifier).max(40),Reading:z.array(identifier).max(40),Writing:z.array(identifier).max(2),Speaking:z.array(identifier).max(0).default([])}).strict();
-const durations=z.object({Listening:z.number().int().min(1).max(90),Reading:z.number().int().min(1).max(120),Writing:z.number().int().min(1).max(120),Speaking:z.literal(0).default(0)}).strict();
+const sectionIds=z.object({Listening:z.array(identifier).max(40),Reading:z.array(identifier).max(40),Writing:z.array(identifier).max(2),Speaking:z.array(identifier).max(12).default([])}).strict();
+const durations=z.object({Listening:z.number().int().min(1).max(90),Reading:z.number().int().min(1).max(120),Writing:z.number().int().min(1).max(120),Speaking:z.number().int().min(0).max(30).default(0)}).strict();
 export const testSchema=z.object({id:identifier,course,kind:z.enum(["FLT","PRACTICE_MOCK"]),number:z.number().int().min(1),published:z.boolean(),available:z.boolean(),duration:z.number().int().positive().max(330),builder:z.object({questionIds:sectionIds,duration:durations}).strict(),version:z.number().int().positive(),conversions:z.unknown().optional()}).strict();
 export async function saveQuestion(db:Db,user:Identity,body:z.infer<typeof questionSchema>) {
   admin(user);
@@ -43,7 +43,10 @@ export async function saveTestRecord(tx:Db|Tx,user:Identity,input:z.infer<typeof
     if(all.length){const other=await tx.test.findMany({where:{kind:input.kind==="FLT"?"PRACTICE_MOCK":"FLT"},select:{id:true,course:true,builder:true}});
       const ids=new Set(all);const clash=other.find(t=>Object.values((t.builder as any)?.questionIds??{}).flat().some((id:any)=>ids.has(id)));
       assert(!clash,400,`A selected question is already used in ${input.kind==="FLT"?"a Practice Mock Test":"a Full Length Test"} (${clash?.course}/${clash?.id}). FLT questions must stay separate from all practice material`);}
-    for(const s of ["Listening","Reading","Writing"] as const) for(const id of input.builder.questionIds[s]) {
+    // FLT Speaking is assessed offline, so FLTs carry no online Speaking section.
+    assert(input.kind!=="FLT"||(input.builder.questionIds.Speaking.length===0&&input.builder.duration.Speaking===0),400,"Full Length Test Speaking is assessed offline; leave its Speaking section empty");
+    assert(!input.builder.questionIds.Speaking.length||input.builder.duration.Speaking>0,400,"Give the Speaking section a time");
+    for(const s of ["Listening","Reading","Writing","Speaking"] as const) for(const id of input.builder.questionIds[s]) {
       const q=qs.find(q=>q.id===id)!;
       assert(q.skill===s&&(q.course===input.course||q.course==="BOTH")&&!q.archived,400,"Selected question is not eligible for this section/course");
       assert(!q.practiceEligible,400,`${q.id} is in module practice, which shows answer keys. Turn off module practice for it before adding it to a test`);

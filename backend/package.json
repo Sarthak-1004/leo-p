@@ -24,6 +24,8 @@
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "content:practice": "tsx --env-file-if-exists=.env scripts/install-practice.ts",
     "content:practice:production": "node --env-file-if-exists=.env dist/scripts/install-practice.js",
+    "content:mock-speaking": "tsx --env-file-if-exists=.env scripts/install-mock-speaking.ts",
+    "content:mock-speaking:production": "node --env-file-if-exists=.env dist/scripts/install-mock-speaking.js",
     "content:test": "tsx --env-file-if-exists=.env scripts/install-test.ts",
     "content:test:production": "node --env-file-if-exists=.env dist/scripts/install-test.js",
     "content:voice": "tsx --env-file-if-exists=.env scripts/voice-listening.ts"

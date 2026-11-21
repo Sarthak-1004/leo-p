@@ -7,7 +7,7 @@ import {ObjectivePractice,WritingEditor} from "../../components/Assessment";
 import {Badge,Button,Card,ContentContainer,EmptyState,LinkButton,Modal,Notice,PageHeader} from "../../components/ui";
 import {TestScreen} from "../../components/TestScreen";
 import type {TestAttempt} from "../../types/domain";
-const sections=["Listening","Reading","Writing"] as const;
+const sections=["Listening","Reading","Writing","Speaking"] as const;
 // The server sends each Reading passage once; put it back on the questions that point to it.
 function withPassages<T extends Partial<TestAttempt>>(a:T):T{return a.passages&&a.questions?{...a,questions:a.questions.map(q=>q.passageRef===undefined?q:{...q,passage:a.passages![q.passageRef]??q.passage})}:a;}
 export function LiveExam(){
@@ -60,7 +60,7 @@ export function LiveExam(){
     return()=>{clearInterval(timer);clearInterval(heartbeat);worker?.terminate();window.removeEventListener("online",change);window.removeEventListener("offline",change);document.removeEventListener("visibilitychange",change);window.removeEventListener("beforeunload",unload);};
   },[saved]);
   if(!attempt)return <ContentContainer>{error?<EmptyState title="Assessment unavailable" description={error} action={<LinkButton to="/student/history">Test history</LinkButton>}/>:<p role="status">Loading saved assessment...</p>}</ContentContainer>;
-  if(attempt.state==="Submitted")return <ContentContainer><Card><PageHeader title="Test submitted"/><Notice>Your submission is stored. {attempt.kind==="FLT"?"Admin will release your result after evaluation. Speaking is assessed offline.":"Your result will appear after scoring and Writing evaluation."}</Notice><LinkButton to="/student/history">View test history</LinkButton></Card></ContentContainer>;
+  if(attempt.state==="Submitted")return <ContentContainer><Card><PageHeader title="Test submitted"/><Notice>Your submission is stored. {attempt.kind==="FLT"?"Admin will release your result after evaluation. Speaking is assessed offline.":"Your result will appear after scoring and Writing and Speaking evaluation."}</Notice><LinkButton to="/student/history">View test history</LinkButton></Card></ContentContainer>;
   const section=attempt.practiceSkill??sections[attempt.section]??"Listening";
   const answers=Object.fromEntries(Object.entries(attempt.answers).filter(([key])=>key.startsWith(section+":")).map(([key,value])=>[key.slice(section.length+1),value]));
   const setAnswer=(key:string,value:string)=>patch({answers:{...current.current!.answers,[`${section}:${key}`]:value}});
@@ -70,7 +70,7 @@ export function LiveExam(){
     {confirm&&<Modal title="Submit this test?" onClose={()=>setConfirm(false)}><div className="stack"><p>Submitted answers cannot be edited. This uses the attempt already started.</p><Button disabled={busy} onClick={async()=>{await sendRef.current(true);setConfirm(false);}}>Confirm submission</Button><Button variant="ghost" onClick={()=>setConfirm(false)}>Keep working</Button></div></Modal>}</>;
   const locked=!connected||busy||waitingForSection||(attempt.timed !== false && seconds===0);
   if(attempt.kind!=="PRACTICE")return <div className={`test-display test-theme-${attempt.theme} test-font-${attempt.fontSize}`}>
-    <TestScreen attempt={attempt} section={section as "Listening"|"Reading"|"Writing"} answers={answers} setAnswer={setAnswer} seconds={seconds} connected={connected} saved={saved} locked={locked}
+    <TestScreen attempt={attempt} section={section as "Listening"|"Reading"|"Writing"|"Speaking"} answers={answers} setAnswer={setAnswer} seconds={seconds} connected={connected} saved={saved} locked={locked}
       institution={platform.institutionName} candidate={students.find(s=>s.id===attempt.studentId)?.name ?? "Test taker"}
       onSelect={question=>{if(current.current?.question!==question)patch({question});}} onSave={()=>void sendRef.current()} onSubmitSection={()=>setConfirmSection(true)} onSubmitTest={()=>setConfirm(true)} onDisplay={patch} alerts={alerts} onAudioProgress={(part,ms)=>{audioPosition.current={audioPart:part,audioMs:ms};}}/>
     {modals}</div>;

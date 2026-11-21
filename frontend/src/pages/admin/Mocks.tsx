@@ -6,7 +6,7 @@ import { Link, useParams } from "react-router";
 import { usePreview } from "../../app/PreviewContext";
 import type { BuilderDraft, Course, MockTest, Question, Skill } from "../../types/domain";
 import { QUESTION_PAGE_SIZE, useQuestionDetails, useQuestionSearch, type QuestionSearch } from "../../utils/useQuestionSearch";
-const skills: Skill[] = ["Listening", "Reading", "Writing"];
+const skills: Skill[] = ["Listening", "Reading", "Writing", "Speaking"];
 import {
   Badge,
   Button,
@@ -181,10 +181,11 @@ export function AdminMocks() {
     </ContentContainer>
   );
 }
-type OnlineSkill = "Listening" | "Reading" | "Writing";
-const required: Record<OnlineSkill, number> = { Listening: 40, Reading: 40, Writing: 2 };
+type OnlineSkill = "Listening" | "Reading" | "Writing" | "Speaking";
+// Speaking is optional and only in Practice Mocks (up to 12 questions across Parts 1-3).
+const required: Record<OnlineSkill, number> = { Listening: 40, Reading: 40, Writing: 2, Speaking: 12 };
 // Mirrors the server's per-section duration limits.
-const maxMinutes: Record<OnlineSkill, number> = { Listening: 90, Reading: 120, Writing: 120 };
+const maxMinutes: Record<OnlineSkill, number> = { Listening: 90, Reading: 120, Writing: 120, Speaking: 30 };
 const conversionNames = ["Listening", "AcademicReading", "GeneralReading"];
 const emptyBuilder = (): BuilderDraft => ({
   questionIds: { Listening: [], Reading: [], Writing: [], Speaking: [] },
@@ -230,10 +231,12 @@ export function MockBuilder() {
         />
       </ContentContainer>
     );
+  // FLT Speaking is assessed offline, so FLTs have no Speaking section here.
+  const sections = test.kind === "FLT" ? skills.filter((s) => s !== "Speaking") : skills;
   const info = (id: string): Question | undefined => results.rows.find((q) => q.id === id) ?? known[id];
   const selected = draft.questionIds[skill];
   const remaining = required[skill] - selected.length;
-  const total = skills.reduce((sum, s) => sum + draft.duration[s], 0);
+  const total = sections.reduce((sum, s) => sum + draft.duration[s], 0);
   const blocked = (q: Question) =>
     q.practiceEligible ? "In module practice" : q.archived ? "Archived" : skill === "Writing" && selected.some((id) => id !== q.id && info(id)?.section === q.section) ? `${q.section} already selected` : "";
   const addable = results.rows.filter((q) => !selected.includes(q.id) && !blocked(q));
@@ -297,10 +300,10 @@ export function MockBuilder() {
         }
       />
       <Notice>
-        Only Listening, Reading and Writing are delivered online. FLT Speaking is assessed offline. Questions in module practice cannot be used in tests because practice shows answer keys.
+        {test.kind === "FLT" ? "FLT Speaking is assessed offline, so this test has Listening, Reading and Writing only." : "Speaking is optional: add up to 12 Speaking questions and give the section a time. It opens after Writing."} Questions in module practice cannot be used in tests because practice shows answer keys.
       </Notice>
       <div className="builder-progress" role="group" aria-label="Builder sections">
-        {skills.map((s) => {
+        {sections.map((s) => {
           const count = draft.questionIds[s].length;
           return (
             <button
@@ -454,11 +457,11 @@ export function MockBuilder() {
             {skill} duration (minutes, up to {maxMinutes[skill]})
             <input
               type="number"
-              min={1}
+              min={skill === "Speaking" ? 0 : 1}
               max={maxMinutes[skill]}
               value={draft.duration[skill]}
               onChange={(e) =>
-                setDraft((prev) => ({ ...prev, duration: { ...prev.duration, [skill]: Math.max(1, Math.min(maxMinutes[skill], Number(e.target.value) || 1)) } }))
+                setDraft((prev) => ({ ...prev, duration: { ...prev.duration, [skill]: Math.max(skill === "Speaking" ? 0 : 1, Math.min(maxMinutes[skill], Number(e.target.value) || 0)) } }))
               }
             />
           </label>
@@ -514,7 +517,7 @@ export function MockBuilder() {
       {preview && (
         <Modal title="Test structure preview" onClose={() => setPreview(false)}>
           <div className="stack">
-            {skills.map((s) => (
+            {sections.map((s) => (
               <section key={s}>
                 <h3>
                   {s} · {draft.duration[s]} min

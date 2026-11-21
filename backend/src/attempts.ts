@@ -9,7 +9,9 @@ import { audit, notify, studentOnly, digest, type Identity } from "./auth.js";
 import { attemptView } from "./views.js";
 import type { Attempt } from "./generated/prisma/client.js";
 export const SIGNAL_GAP_MS = 7500;
-export const SECTIONS = ["Listening","Reading","Writing"] as const;
+// Section order. Speaking runs only in Practice Mock Tests that include Speaking questions; FLT Speaking is offline,
+// so an FLT never gets Speaking time and ends after Writing.
+export const SECTIONS = ["Listening","Reading","Writing","Speaking"] as const;
 export type Snapshot = { title:string; questions:any[]; passages?:string[]; builder:any; conversions:Conversions; version:number; skill?:string; untimed?:boolean };
 export async function owned(tx: Tx | Db, user: Identity, id: string) {
   const a = await tx.attempt.findUnique({where:{id}});
@@ -32,11 +34,12 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL"|"ACADE
     const used = await tx.attempt.count({where:{studentId:user.id,course,testId}});
     assert(used < (test.kind === "FLT" ? 1 : 2),409,"All attempts for this test have been used");
     const builder = test.builder as any;
-    const ids = SECTIONS.flatMap(s=>builder.questionIds?.[s]??[]);
-    const questions = await tx.question.findMany({where:{id:{in:ids},published:true,archived:false,course:{in:[course,"BOTH"]},skill:{not:"Speaking"}}});
+    const live = SECTIONS.filter(s=>s!=="Speaking"||(test.kind==="PRACTICE_MOCK"&&(builder.questionIds?.Speaking?.length??0)>0&&Number(builder.duration?.Speaking)>0));
+    const ids = live.flatMap(s=>builder.questionIds?.[s]??[]);
+    const questions = await tx.question.findMany({where:{id:{in:ids},published:true,archived:false,course:{in:[course,"BOTH"]}}});
     assert(questions.length === ids.length && ids.length > 0,409,"Test content is not ready");
     const snapshot:Snapshot = {title:test.title,...packSnapshotQuestions(ids.map((id:string)=>questions.find(q=>q.id===id))),builder,conversions:test.conversions as Conversions,version:test.version};
-    const a=await tx.attempt.create({data:{studentId:user.id,course,testId,kind:test.kind,number:used+1,snapshot:json(snapshot),answers:{},remainingMs:test.duration*60000,remainingBySection:json(Object.fromEntries(SECTIONS.map(s=>[s,Number(builder.duration[s])*60000]))),sessionKey:randomUUID(),lastSignalAt:new Date()}});
+    const a=await tx.attempt.create({data:{studentId:user.id,course,testId,kind:test.kind,number:used+1,snapshot:json(snapshot),answers:{},remainingMs:test.duration*60000,remainingBySection:json(Object.fromEntries(live.map(s=>[s,Number(builder.duration[s])*60000]))),sessionKey:randomUUID(),lastSignalAt:new Date()}});
     await tx.attemptLog.create({data:{attemptId:a.id,event:"START",remainingMs:a.remainingMs}});
     return attemptView(a,true);
   },"ReadCommitted");
@@ -198,7 +201,7 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
   }
   const hasWriting=snapshot.questions.some(q=>q.skill === "Writing");
   // Practice Speaking: answers are the student's own recording ids; a blank practice scores 0 without an AI call.
-  const hasSpeaking=a.kind==="PRACTICE"&&snapshot.questions.some(q=>q.skill==="Speaking");
+  const hasSpeaking=a.kind!=="FLT"&&snapshot.questions.some(q=>q.skill==="Speaking");
   const recordings=hasSpeaking?Object.entries(answers).filter(([k,v])=>k.startsWith("Speaking:")&&!k.includes(":flag:")&&v).map(([,v])=>v):[];
   if(recordings.length){const owned=await tx.asset.count({where:{id:{in:recordings},key:{startsWith:recordingKeyPrefix(a.studentId,a.id)}}});assert(owned===new Set(recordings).size,400,"A recording does not belong to this practice");}
   const blankSpeaking=hasSpeaking&&!recordings.length;
@@ -206,6 +209,7 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
   const blankWriting=a.kind==="PRACTICE"&&hasWriting&&!hasText(answers);
   const s=await tx.student.findUnique({where:{id:a.studentId},select:{trainerId:true}});
   const settings=await platformSettings(tx);
+  // Writing and Speaking are marked by separate AI jobs (a Practice Mock can have both).
   let autoWriting=((hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking))&&settings.autoWritingEvaluation;
   let quota="";
   if(autoWriting){
@@ -219,7 +223,8 @@ async function scoreSubmission(tx:Tx,a:Attempt) {
   const speaking=blankSpeaking?0:null;
   const reviewStatus=a.kind==="FLT"||(hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking)?"Pending":"Completed";
   const r=await tx.result.create({data:{id:a.id,studentId:a.studentId,assignedTrainerId:s?.trainerId,course:a.course,testId:a.testId,kind:a.kind,name:snapshot.title,attemptNumber:a.number,minutes:Math.ceil(a.activeMs/60000),listening:bands.Listening,reading:bands.Reading,writing,speaking,overall:overall({listening:bands.Listening??null,reading:bands.Reading??null,writing,speaking}),rawScores:json(raw),originalScores:json({modules:[...new Set(snapshot.questions.map(q=>q.skill))],typeScores:[...typeScores.values()],questionTypes:[...new Set(snapshot.questions.map(q=>`${q.skill}/${q.questionType}`))],listening:bands.Listening,reading:bands.Reading,writing,...(blankWriting?{writingBlank:true}:{}),...(quota?{aiSkipped:quota}:{})}),aiStatus:hasWriting?(blankWriting?"Completed":autoWriting?"Pending":"Manual review"):"Completed",reviewStatus,released:a.kind !== "FLT"}});
-  if(autoWriting) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:hasSpeaking?SPEAKING_RUBRIC:WRITING_RUBRIC}});
+  if(autoWriting&&hasWriting&&!blankWriting) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:WRITING_RUBRIC}});
+  if(autoWriting&&hasSpeaking&&!blankSpeaking) await tx.evaluationJob.create({data:{resultId:r.id,rubricVersion:SPEAKING_RUBRIC}});
   if(quota) await audit(tx,"system","Writing AI skipped: daily limit reached",r.id,{limit:quota});
   if((a.kind === "FLT"||(((hasWriting&&!blankWriting)||(hasSpeaking&&!blankSpeaking))&&!autoWriting)) && s?.trainerId) await notify(tx,s.trainerId,`New marksheet: ${snapshot.title}`,`/trainer/evaluations/${r.id}`);
   await audit(tx,a.studentId,"Attempt submitted",a.id,{kind:a.kind});

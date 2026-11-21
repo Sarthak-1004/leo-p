@@ -41,7 +41,7 @@ Pages consume domain contracts rather than importing production secrets or assum
 
 Retain course-qualified test identifiers; distinguish `Practice`, `Practice Mock Test`, and `Full Length Test` in domain logic, history, catalogs and release. A legacy internal `mock` filename/route may remain for compatibility, but labels and rules must distinguish the two full-test types. Exactly 52 FLTs exist per course (FLT_COUNT in backend/src/domain.ts); sample Practice Mock fixtures do not settle the unconfirmed production count.
 
-Do not implement browser microphone capture, Speaking submissions, transcripts or Speaking AI. Speaking question content remains staff/offline material. Trainer grade entry is distinct from an online student assessment section.
+Speaking (client decision 21 Nov 2026) is recorded in the browser as WAV only in module practice and in Practice Mocks whose builder includes Speaking. The attempt section order is Listening, Reading, Writing, Speaking; only Practice Mocks with Speaking questions and time get a Speaking entry in remainingBySection, so FLTs end after Writing. Uploads are refused for FLTs and, in mocks, outside the open Speaking section. Each result may have a Writing job and a Speaking job; a job completes the result only when no other job for it is pending, and result rows are locked while the overall band is recalculated. FLT Speaking content remains staff/offline material. Trainer grade entry is distinct from an online student assessment section.
 
 ## Application flow
 

@@ -94,14 +94,17 @@ export async function runWritingJob(db:Db,config:Config) {
     const taskBands=Object.fromEntries(output.tasks.map(t=>[t.task,Object.values(t.criteria).reduce((a,c)=>a+c.band,0)/4]));
     const writing=taskBands["Task 1"]!==undefined&&taskBands["Task 2"]!==undefined?roundBand((taskBands["Task 1"]+2*taskBands["Task 2"])/3):roundBand(Object.values(taskBands)[0]!);
     await transaction(db,async tx=>{
+      // Lock the result: its Writing and Speaking jobs may finish together and each recalculates the overall band.
+      await tx.$queryRaw`SELECT 1 FROM "Result" WHERE "id"=${job.resultId} FOR UPDATE`;
       const current=await tx.result.findUniqueOrThrow({where:{id:job.resultId}});
       await tx.evaluationJob.update({where:{id:job.id},data:{state:"COMPLETED",output:json(output),model:modelName(config),completedAt:new Date(),leaseUntil:null,error:null}});
       const hasManual=await tx.scoreRevision.count({where:{resultId:job.resultId,section:"Writing"}});
       const scores={...current,writing:hasManual?current.writing:writing};
       const original=current.originalScores as Record<string,unknown>;
-      await tx.result.update({where:{id:job.resultId},data:{aiStatus:"Completed",...(current.kind!=="FLT"?{reviewStatus:"Completed"}:{}),writing:scores.writing,overall:overall(scores),originalScores:json({...original,...(original.aiWriting===undefined?{aiWriting:writing,aiJobId:job.id}:{} )}),version:{increment:1}}});
+      const others=await tx.evaluationJob.count({where:{resultId:job.resultId,id:{not:job.id},state:{in:["PENDING","RUNNING"]}}});
+      await tx.result.update({where:{id:job.resultId},data:{aiStatus:others?"Pending":"Completed",...(current.kind!=="FLT"&&!others?{reviewStatus:"Completed"}:{}),writing:scores.writing,overall:overall(scores),originalScores:json({...original,...(original.aiWriting===undefined?{aiWriting:writing,aiJobId:job.id}:{} )}),version:{increment:1}}});
       await audit(tx,"system","Writing AI completed",job.resultId,{jobId:job.id,model:modelName(config),rubric:job.rubricVersion});
-      if(current.kind!=="FLT") await notify(tx,current.studentId,`Evaluation for ${current.name} is complete.`,`/student/results/${current.id}`);
+      if(current.kind!=="FLT"&&!others) await notify(tx,current.studentId,`Evaluation for ${current.name} is complete.`,`/student/results/${current.id}`);
     });
   } catch(error) {
     const configured=writingAiConfigured(config);
@@ -147,11 +150,14 @@ async function markSpeaking(db:Db,config:Config,job:any){
   const c=output.criteria,criteria={fluency:c.fluency.band,lexical:c.lexical.band,grammar:c.grammar.band,pronunciation:c.pronunciation.band};
   const speaking=Math.round(Object.values(criteria).reduce((a,b)=>a+b,0)/4*2)/2;
   await transaction(db,async tx=>{
+    // Lock the result: its Writing and Speaking jobs may finish together and each recalculates the overall band.
+    await tx.$queryRaw`SELECT 1 FROM "Result" WHERE "id"=${job.resultId} FOR UPDATE`;
     const current=await tx.result.findUniqueOrThrow({where:{id:job.resultId}});
     await tx.evaluationJob.update({where:{id:job.id},data:{state:"COMPLETED",output:json(output),model:modelName(config),completedAt:new Date(),leaseUntil:null,error:null}});
     const original=current.originalScores as Record<string,unknown>;
-    await tx.result.update({where:{id:job.resultId},data:{aiStatus:"Completed",reviewStatus:"Completed",speaking,speakingCriteria:json(criteria),overall:overall({...current,speaking}),originalScores:json({...original,...(original.aiSpeaking===undefined?{aiSpeaking:speaking,aiJobId:job.id}:{})}),version:{increment:1}}});
+    const others=await tx.evaluationJob.count({where:{resultId:job.resultId,id:{not:job.id},state:{in:["PENDING","RUNNING"]}}});
+    await tx.result.update({where:{id:job.resultId},data:{aiStatus:others?"Pending":"Completed",...(others?{}:{reviewStatus:"Completed"}),speaking,speakingCriteria:json(criteria),overall:overall({...current,speaking}),originalScores:json({...original,...(original.aiSpeaking===undefined?{aiSpeaking:speaking,aiJobId:job.id}:{})}),version:{increment:1}}});
     await audit(tx,"system","Speaking AI completed",job.resultId,{jobId:job.id,model:modelName(config),rubric:job.rubricVersion});
-    await notify(tx,current.studentId,`Evaluation for ${current.name} is complete.`,`/student/results/${current.id}`);
+    if(!others) await notify(tx,current.studentId,`Evaluation for ${current.name} is complete.`,`/student/results/${current.id}`);
   });
 }

@@ -5,7 +5,7 @@ import { band, date, roundBand } from "./domain.js";
 
 // Student dashboard analytics. Only results the student is allowed to see are counted:
 // released FLTs, module practice, and Practice Mocks once all three skills are scored.
-const visibleSql = Prisma.sql`((r."kind"='FLT' AND r."released") OR r."kind"='PRACTICE' OR (r."kind"='PRACTICE_MOCK' AND r."listening" IS NOT NULL AND r."reading" IS NOT NULL AND r."writing" IS NOT NULL))`;
+const visibleSql = Prisma.sql`((r."kind"='FLT' AND r."released") OR r."kind"='PRACTICE' OR (r."kind"='PRACTICE_MOCK' AND r."listening" IS NOT NULL AND r."reading" IS NOT NULL AND r."writing" IS NOT NULL AND (r."speaking" IS NOT NULL OR NOT COALESCE(r."originalScores"->'modules','[]'::jsonb) ? 'Speaking')))`;
 const COHORT_MIN_STUDENTS = 5;   // institute averages appear only when enough students contribute
 const cohortCache = new Map<string, { at: number; value: Cohort }>();
 type Cohort = { students: number; listening: number | null; reading: number | null; writing: number | null; types: Record<string, number> };
