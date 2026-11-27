@@ -43,7 +43,7 @@ const studentNavigation: NavNode[] = [
         ],
       },
       {
-        ...link("clock", "Module Arena", "/student/practice-mocks", "practiceMocks"),
+        ...link("clock", "Practice Module Test", "/student/practice-mocks", "practiceMocks"),
         hint: "Practice Mock Tests under real exam conditions.",
       },
     ],

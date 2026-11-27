@@ -110,7 +110,7 @@ export function MockTests({ practice = false }: { practice?: boolean }) {
   return (
     <ContentContainer>
       <PageHeader
-        eyebrow={practice ? "Tests / Module Arena" : undefined}
+        eyebrow={practice ? "Tests / Practice Module Test" : undefined}
         title={practice ? "Practice Mock Tests" : "Full Length Tests"}
         description={
           practice

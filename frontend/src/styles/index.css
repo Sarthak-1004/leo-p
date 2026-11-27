@@ -553,10 +553,10 @@ main:focus {
   gap: 8px;
   font-size: 12.5px;
 }
+/* Long names (for example "Practice Module Test") wrap to a second line instead of being cut off. */
 .nav-group-items .nav-item .sidebar-label:not(.nav-count) {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.25;
   min-width: 0;
 }
 .nav-group-items .nav-count {
