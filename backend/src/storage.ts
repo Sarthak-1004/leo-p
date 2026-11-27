@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 import { admin, audit, type Identity } from "./auth.js";
-import { assert } from "./domain.js";
+import { assert, attemptSnapshot } from "./domain.js";
 import { platformSettings } from "./settings.js";
 import { validateMedia } from "./media-validation.js";
 export class Storage {
@@ -139,10 +139,10 @@ export class Storage {
       assert(
         practice ||
           attempts.some(a => {
-            const s = a.snapshot as any;
+            const s = attemptSnapshot(a.snapshot);
             const open = s.skill ?? ["Listening", "Reading", "Writing", "Speaking"][a.section];
             return s.questions?.some(
-              (q: any) =>
+              q =>
                 (q.skill !== "Speaking" || s.skill === "Speaking") &&
                 q.assetIds?.includes(id) &&
                 (a.state === "IN_PROGRESS" ? q.skill === open : a.result?.released || a.result?.kind !== "FLT"),

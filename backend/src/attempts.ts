@@ -12,6 +12,9 @@ import {
   snapshotQuestions,
   type Heartbeat,
   type Conversions,
+  testBuilder,
+  type TestBuilder,
+  type SnapshotQuestion,
 } from "./domain.js";
 import { audit, notify, studentOnly, digest, type Identity } from "./auth.js";
 import { attemptView } from "./views.js";
@@ -22,9 +25,9 @@ export const SIGNAL_GAP_MS = 7500;
 export const SECTIONS = ["Listening", "Reading", "Writing", "Speaking"] as const;
 export type Snapshot = {
   title: string;
-  questions: any[];
+  questions: SnapshotQuestion[];
   passages?: string[];
-  builder: any;
+  builder: TestBuilder;
   conversions: Conversions;
   version: number;
   skill?: string;
@@ -59,7 +62,7 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL" | "ACA
       assert(test && test.published && (test.kind !== "FLT" || test.available), 403, "This test is unavailable");
       const used = await tx.attempt.count({ where: { studentId: user.id, course, testId } });
       assert(used < (test.kind === "FLT" ? 1 : 2), 409, "All attempts for this test have been used");
-      const builder = test.builder as any;
+      const builder = testBuilder(test.builder);
       const live = SECTIONS.filter(
         s =>
           s !== "Speaking" ||
@@ -89,7 +92,7 @@ export async function startTest(db: Db, user: Identity, course: "GENERAL" | "ACA
           snapshot: json(snapshot),
           answers: {},
           remainingMs: test.duration * 60000,
-          remainingBySection: json(Object.fromEntries(live.map(s => [s, Number(builder.duration[s]) * 60000]))),
+          remainingBySection: json(Object.fromEntries(live.map(s => [s, Number(builder.duration![s]) * 60000]))),
           sessionKey: randomUUID(),
           lastSignalAt: new Date(),
         },
@@ -414,14 +417,17 @@ async function scoreSubmission(tx: Tx, a: Attempt) {
   const raw: Record<string, { correct: number; total: number }> = {};
   const bands: Record<string, number | null> = { Listening: null, Reading: null };
   // Per question-type tallies are stored once here so reports never re-read snapshots.
-  const typeScores = new Map<string, { module: string; questionType: string; correct: number; total: number }>();
+  const typeScores = new Map<
+    string,
+    { module: string; questionType: string | undefined; correct: number; total: number }
+  >();
   const normalize = (value: string) => value.trim().toLocaleLowerCase("en").replace(/\s+/g, " ");
   for (const module of ["Listening", "Reading"]) {
     const questions = snapshot.questions.filter(q => q.skill === module);
     let correct = 0;
     for (const q of questions) {
-      const accepted = (Array.isArray(q.answer) ? q.answer : [q.answer]).filter((key: string) => key.trim());
-      const right = accepted.some((key: string) => normalize(key) === normalize(answers[`${module}:${q.id}`] ?? ""));
+      const accepted = (Array.isArray(q.answer) ? q.answer : [q.answer ?? ""]).filter(key => key.trim());
+      const right = accepted.some(key => normalize(key) === normalize(answers[`${module}:${q.id}`] ?? ""));
       if (right) correct++;
       const key = `${module}/${q.questionType}`,
         score = typeScores.get(key) ?? { module, questionType: q.questionType, correct: 0, total: 0 };
@@ -538,7 +544,7 @@ export async function practiceHistory(db: Db, user: Identity) {
       attemptId: a.id,
       state: a.state === "SUBMITTED" ? "Completed" : "In progress",
       date: a.createdAt.toISOString(),
-      questionIds: snapshotQuestions(a.snapshot).map((q: any) => q.id),
+      questionIds: snapshotQuestions(a.snapshot).map(q => q.id),
       correct: raw.reduce((n, x) => n + (x.correct ?? 0), 0),
       total: raw.reduce((n, x) => n + (x.total ?? 0), 0),
       writing: r?.writing ?? null,

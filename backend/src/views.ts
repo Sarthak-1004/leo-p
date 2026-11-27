@@ -1,11 +1,20 @@
 import { platformSettings } from "./settings.js";
 import type { Db } from "./db.js";
 import { academicSelect, type Identity } from "./auth.js";
-import { defaultSettings, overall, today, snapshotQuestions } from "./domain.js";
+import {
+  overall,
+  today,
+  snapshotQuestions,
+  attemptSnapshot,
+  originalScores,
+  testBuilder,
+  type AttemptSnapshot,
+  type SnapshotQuestion,
+} from "./domain.js";
 import type { Config } from "./config.js";
 import type { Attempt, Question, Result, ScoreRevision } from "./generated/prisma/client.js";
 
-export function publicQuestion(q: Question | Record<string, any>, includeKey = false) {
+export function publicQuestion(q: Question | SnapshotQuestion, includeKey = false) {
   const {
     id,
     skill,
@@ -44,14 +53,14 @@ export function publicQuestion(q: Question | Record<string, any>, includeKey = f
   };
 }
 // Students receive only the open section's questions; later sections stay on the server.
-const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: any) =>
+const openQuestions = (a: Pick<Attempt, "state" | "section">, snapshot: AttemptSnapshot) =>
   (snapshot.questions ?? []).filter(
-    (q: any) =>
+    q =>
       snapshot.skill ||
       (a.state === "IN_PROGRESS" && q.skill === ["Listening", "Reading", "Writing", "Speaking"][a.section]),
   );
 export function staffAttemptView(a: Attempt) {
-  const snapshot = a.snapshot as any;
+  const snapshot = attemptSnapshot(a.snapshot);
   const { sessionKey: _, ...view } = attemptView(a);
   return {
     ...view,
@@ -60,15 +69,15 @@ export function staffAttemptView(a: Attempt) {
     timed: !snapshot.untimed,
     hiddenSeconds: Math.round(a.hiddenMs / 1000),
     activeSeconds: Math.round(a.activeMs / 1000),
-    questions: snapshotQuestions(snapshot).map((q: any) => publicQuestion(q, true)),
+    questions: snapshotQuestions(snapshot).map(q => publicQuestion(q, true)),
   };
 }
 // The snapshot is optional: summaries and heartbeat acknowledgements are built without loading the paper.
 export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt["snapshot"] }, includeContent = false) {
-  const snapshot = a.snapshot as any;
+  const snapshot = attemptSnapshot(a.snapshot);
   // The open section's passages travel once, keyed by index; each question carries only its passageRef.
   const open = includeContent ? openQuestions(a, snapshot) : [],
-    refs = [...new Set(open.map((q: any) => q.passageRef).filter((r: any) => r !== undefined))];
+    refs = [...new Set(open.map(q => q.passageRef).filter(r => r !== undefined))];
   return {
     submittedSections: a.submittedSections,
     id: a.id,
@@ -81,8 +90,8 @@ export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt[
     remainingSeconds: Math.ceil(a.remainingMs / 1000),
     remainingBySection: a.remainingBySection,
     sectionRemainingSeconds: Math.ceil(
-      ((a.remainingBySection as any)[["Listening", "Reading", "Writing", "Speaking"][a.section]!] ?? a.remainingMs) /
-        1000,
+      ((a.remainingBySection as Record<string, number>)[["Listening", "Reading", "Writing", "Speaking"][a.section]!] ??
+        a.remainingMs) / 1000,
     ),
     section: a.section,
     question: a.question,
@@ -97,7 +106,7 @@ export function attemptView(a: Omit<Attempt, "snapshot"> & { snapshot?: Attempt[
     sessionKey: a.sessionKey,
     ...(includeContent
       ? {
-          questions: open.map((q: any) => ({
+          questions: open.map(q => ({
             ...publicQuestion(q),
             ...(q.passageRef !== undefined ? { passageRef: q.passageRef } : {}),
           })),
@@ -121,10 +130,10 @@ export function resultView(result: Result & { revisions?: ScoreRevision[]; jobs?
         (result.listening !== null &&
           result.reading !== null &&
           result.writing !== null &&
-          (result.speaking !== null || !((result.originalScores as any)?.modules ?? []).includes("Speaking"))));
+          (result.speaking !== null || !(originalScores(result.originalScores).modules ?? []).includes("Speaking"))));
   const base = {
     modules:
-      (result.originalScores as any)?.modules ??
+      originalScores(result.originalScores).modules ??
       (result.kind === "PRACTICE" ? [result.name.split(" ")[0]] : ["Listening", "Reading", "Writing"]),
     id: result.id,
     studentId: result.studentId,
@@ -198,77 +207,75 @@ export const userView = (u: Identity, config: Config) => ({
 });
 export async function bootstrap(db: Db, user: Identity, offset = 0, limit = 500, timezone = "Asia/Kolkata") {
   const isStudent = user.role === "STUDENT";
-  const [students, trainers, tests, questions, results, attempts, notifications, auditEvents, setting] =
-    await Promise.all([
-      db.student.findMany({
-        where: isStudent ? { id: user.id } : {},
-        select: user.role === "ADMIN" ? { ...academicSelect, contacts: true } : academicSelect,
-        orderBy: { id: "asc" },
-        skip: offset,
-        take: limit + 1,
-      }),
-      isStudent
-        ? Promise.resolve([])
-        : db.user.findMany({
-            where: { role: "TRAINER" },
-            select: { id: true, name: true, email: true, enabled: true },
-            orderBy: { name: "asc" },
-            skip: offset,
-            take: limit + 1,
-          }),
-      db.test.findMany({
-        where: isStudent ? { course: user.student!.course } : {},
-        orderBy: [{ course: "asc" }, { number: "asc" }],
-      }),
-      !isStudent
-        ? Promise.resolve([])
-        : db.question.findMany({
-            where: isStudent
-              ? {
-                  course: { in: [user.student!.course, "BOTH"] },
-                  published: true,
-                  archived: false,
-                  practiceEligible: true,
-                }
-              : {},
-            orderBy: { id: "asc" },
-            skip: offset,
-            take: limit + 1,
-          }),
-      // AI feedback is repeated only for a student's own results; staff read it on the marksheet.
-      db.result.findMany({
-        where: isStudent ? { studentId: user.id, course: user.student!.course } : {},
-        include: {
-          jobs: {
-            where: { state: "COMPLETED", ...(isStudent ? {} : { id: { in: [] } }) },
-            select: { state: true, output: true, model: true, rubricVersion: true },
-          },
+  const [students, trainers, tests, questions, results, attempts, notifications, auditEvents] = await Promise.all([
+    db.student.findMany({
+      where: isStudent ? { id: user.id } : {},
+      select: user.role === "ADMIN" ? { ...academicSelect, contacts: true } : academicSelect,
+      orderBy: { id: "asc" },
+      skip: offset,
+      take: limit + 1,
+    }),
+    isStudent
+      ? Promise.resolve([])
+      : db.user.findMany({
+          where: { role: "TRAINER" },
+          select: { id: true, name: true, email: true, enabled: true },
+          orderBy: { name: "asc" },
+          skip: offset,
+          take: limit + 1,
+        }),
+    db.test.findMany({
+      where: isStudent ? { course: user.student!.course } : {},
+      orderBy: [{ course: "asc" }, { number: "asc" }],
+    }),
+    !isStudent
+      ? Promise.resolve([])
+      : db.question.findMany({
+          where: isStudent
+            ? {
+                course: { in: [user.student!.course, "BOTH"] },
+                published: true,
+                archived: false,
+                practiceEligible: true,
+              }
+            : {},
+          orderBy: { id: "asc" },
+          skip: offset,
+          take: limit + 1,
+        }),
+    // AI feedback is repeated only for a student's own results; staff read it on the marksheet.
+    db.result.findMany({
+      where: isStudent ? { studentId: user.id, course: user.student!.course } : {},
+      include: {
+        jobs: {
+          where: { state: "COMPLETED", ...(isStudent ? {} : { id: { in: [] } }) },
+          select: { state: true, output: true, model: true, rubricVersion: true },
         },
-        orderBy: { date: "desc" },
-        skip: offset,
-        take: limit + 1,
-      }),
-      // Attempt summaries only: the snapshot (the whole paper) is not needed for a dashboard.
-      isStudent
-        ? db.attempt.findMany({
-            where: { studentId: user.id, course: user.student!.course },
-            omit: { snapshot: true },
-            orderBy: { createdAt: "desc" },
-            skip: offset,
-            take: limit + 1,
-          })
-        : Promise.resolve([]),
-      db.notification.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: "desc" },
-        skip: offset,
-        take: limit + 1,
-      }),
-      user.role === "ADMIN"
-        ? db.auditLog.findMany({ orderBy: { at: "desc" }, skip: offset, take: limit + 1 })
-        : Promise.resolve([]),
-      db.platformSetting.findUnique({ where: { id: "platform" } }),
-    ]);
+      },
+      orderBy: { date: "desc" },
+      skip: offset,
+      take: limit + 1,
+    }),
+    // Attempt summaries only: the snapshot (the whole paper) is not needed for a dashboard.
+    isStudent
+      ? db.attempt.findMany({
+          where: { studentId: user.id, course: user.student!.course },
+          omit: { snapshot: true },
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit + 1,
+        })
+      : Promise.resolve([]),
+    db.notification.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      skip: offset,
+      take: limit + 1,
+    }),
+    user.role === "ADMIN"
+      ? db.auditLog.findMany({ orderBy: { at: "desc" }, skip: offset, take: limit + 1 })
+      : Promise.resolve([]),
+  ]);
   // Staff always receive every pending marksheet (up to 5,000) as well as the newest results,
   // so older pending work is never hidden behind recent completed results.
   const pendingRows =
@@ -395,7 +402,7 @@ export async function bootstrap(db: Db, user: Identity, offset = 0, limit = 500,
       published: t.published,
       available: t.kind === "PRACTICE_MOCK" ? t.published : t.available,
       duration: t.duration,
-      sectionDurations: (t.builder as any).duration,
+      sectionDurations: testBuilder(t.builder).duration,
       builder: user.role === "ADMIN" ? t.builder : undefined,
       conversions: user.role === "ADMIN" ? t.conversions : undefined,
       version: t.version,

@@ -78,8 +78,8 @@ export async function reportIssue(db: Db, user: Identity, input: z.infer<typeof 
     const label = new Map<string, string>();
     for (const skill of ["Listening", "Reading", "Writing"])
       all
-        .filter((q: any) => q.skill === skill)
-        .forEach((q: any, i: number) =>
+        .filter(q => q.skill === skill)
+        .forEach((q, i) =>
           label.set(q.id, skill === "Writing" ? `Writing ${q.section ?? `Task ${i + 1}`}` : `${skill} Q${i + 1}`),
         );
     for (const id of new Set(input.questionIds)) {

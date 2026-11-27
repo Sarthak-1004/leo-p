@@ -1,16 +1,25 @@
 import { z } from "zod";
 import type { Config } from "./config.js";
 import { json, transaction, type Db } from "./db.js";
-import { overall, roundBand, snapshotQuestions } from "./domain.js";
+import { overall, roundBand, snapshotQuestions, type SnapshotQuestion } from "./domain.js";
+// Request and response shapes used from the Gemini (Vertex AI) and OpenAI Responses APIs.
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+}
+interface OpenAIResponse {
+  output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+}
 import { SPEAKING_RUBRIC, speakingInstructions, speakingOutputSchema, speakingVertexSchema } from "./speaking.js";
 import { audit, notify } from "./auth.js";
 import { maintain } from "./maintenance.js";
 import { Storage } from "./storage.js";
+import { workerStats } from "./observability.js";
 export async function writingInput(
   db: Db,
   config: Config,
   course: string,
-  questions: any[],
+  questions: SnapshotQuestion[],
   answers: Record<string, string>,
 ) {
   const writing = questions.filter(q => q.skill === "Writing");
@@ -19,7 +28,7 @@ export async function writingInput(
     prompt: q.prompt,
     answer: answers[`Writing:${q.section}`] ?? answers[`Writing:${q.id}`] ?? "",
   }));
-  const content: any[] = [{ type: "input_text", text: JSON.stringify({ course, tasks }) }];
+  const content: Array<Record<string, unknown>> = [{ type: "input_text", text: JSON.stringify({ course, tasks }) }];
   const ids = [...new Set<string>(writing.flatMap(q => q.assetIds ?? []))];
   const figures: { task: string; mimeType: string; data: string }[] = [];
   if (ids.length) {
@@ -190,7 +199,7 @@ async function evaluate(
   request: Awaited<ReturnType<typeof writingInput>>,
 ): Promise<string | undefined> {
   if (config.AI_PROVIDER === "vertex") {
-    const parts: any[] = [
+    const parts: GeminiPart[] = [
       {
         text: JSON.stringify({
           course,
@@ -215,8 +224,8 @@ async function evaluate(
       }),
     });
     if (!response.ok) throw new Error(`Writing service returned HTTP ${response.status}`);
-    const data = (await response.json()) as any;
-    return data.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") || undefined;
+    const data = (await response.json()) as GeminiResponse;
+    return data.candidates?.[0]?.content?.parts?.map(p => p.text ?? "").join("") || undefined;
   }
   const response = await fetch(`${config.OPENAI_BASE_URL.replace(/\/$/, "")}/responses`, {
     method: "POST",
@@ -233,14 +242,16 @@ async function evaluate(
     }),
   });
   if (!response.ok) throw new Error(`Writing service returned HTTP ${response.status}`);
-  const data = (await response.json()) as any;
-  return data.output?.flatMap((o: any) => o.content ?? []).find((c: any) => c.type === "output_text")?.text;
+  const data = (await response.json()) as OpenAIResponse;
+  return data.output?.flatMap(o => o.content ?? []).find(c => c.type === "output_text")?.text;
 }
-export async function runWritingJob(db: Db, config: Config) {
-  const job = await transaction(db, async tx => {
+// Claims the oldest runnable job with a 3-minute lease. SKIP LOCKED lets parallel slots and
+// instances claim different jobs; an expired lease (crashed worker) makes a job runnable again.
+async function claimJob(db: Db) {
+  return transaction(db, async tx => {
     const ids = await tx.$queryRaw<
       Array<{ id: string }>
-    >`SELECT "id" FROM "EvaluationJob" WHERE ("state"='PENDING' AND "availableAt"<=NOW()) OR ("state"='RUNNING' AND "leaseUntil"<NOW()) ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`;
+    >`SELECT "id" FROM "EvaluationJob" WHERE ("state"='PENDING' AND "availableAt"<=(NOW() AT TIME ZONE 'UTC')) OR ("state"='RUNNING' AND "leaseUntil"<(NOW() AT TIME ZONE 'UTC')) ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`;
     if (!ids[0]) return null;
     return tx.evaluationJob.update({
       where: { id: ids[0].id },
@@ -248,30 +259,45 @@ export async function runWritingJob(db: Db, config: Config) {
       include: { result: { include: { attempt: true } } },
     });
   });
+}
+type ClaimedJob = NonNullable<Awaited<ReturnType<typeof claimJob>>>;
+// Claims and processes one job. Returns false when the queue had nothing runnable.
+export async function runWritingJob(db: Db, config: Config) {
+  const job = await claimJob(db);
   if (!job) return false;
+  await processJob(db, config, job);
+  return true;
+}
+async function processJob(db: Db, config: Config, job: ClaimedJob) {
   try {
     if (!writingAiConfigured(config)) throw new Error("Writing AI is not configured. Manual evaluation is available");
     if (job.rubricVersion === SPEAKING_RUBRIC) {
       await markSpeaking(db, config, job);
-      return true;
+      workerStats.completed++;
+      return;
     }
-    const snapshot = job.result.attempt.snapshot as any;
     const answers = job.result.attempt.answers as Record<string, string>;
-    const request = await writingInput(db, config, job.result.course, snapshotQuestions(snapshot), answers);
+    const request = await writingInput(
+      db,
+      config,
+      job.result.course,
+      snapshotQuestions(job.result.attempt.snapshot),
+      answers,
+    );
     const { tasks } = request;
     const text = await evaluate(config, job.result.course, request);
     if (!text) throw new Error("Writing service did not return an evaluation");
     const output = outputSchema.parse(JSON.parse(text));
     // Keep only corrections that quote the student's words exactly, so every highlight points at real text.
     for (const t of output.tasks) {
-      const answer = tasks.find((x: any) => x.task === t.task)?.answer ?? "";
+      const answer = tasks.find(x => x.task === t.task)?.answer ?? "";
       t.corrections = t.corrections.filter(c => c.original.trim() && answer.includes(c.original));
     }
     const names = output.tasks.map(t => t.task);
     if (
       names.length !== tasks.length ||
       new Set(names).size !== names.length ||
-      tasks.some((t: any) => !names.includes(t.task))
+      tasks.some(t => !(names as string[]).includes(t.task))
     )
       throw new Error("Writing task evaluations are incomplete");
     const taskBands = Object.fromEntries(
@@ -329,9 +355,12 @@ export async function runWritingJob(db: Db, config: Config) {
           `/student/results/${current.id}`,
         );
     });
+    workerStats.completed++;
   } catch (error) {
     const configured = writingAiConfigured(config);
     const retry = configured && job.attempts < 3;
+    if (retry) workerStats.retried++;
+    else workerStats.failed++;
     await transaction(db, async tx => {
       await tx.evaluationJob.update({
         where: { id: job.id },
@@ -361,21 +390,44 @@ export async function runWritingJob(db: Db, config: Config) {
       }
     });
   }
-  return true;
 }
-export function startWorker(db: Db, config: Config) {
-  let busy = false;
-  const timer = setInterval(async () => {
-    if (busy) return;
-    busy = true;
+// Runs up to `concurrency` jobs at once. Every tick fills free slots by claiming jobs one by one
+// until the queue has nothing runnable; a finished slot refills immediately.
+export function startWorker(
+  db: Db,
+  config: Config,
+  { concurrency = config.WORKER_CONCURRENCY, intervalMs = 3000 }: { concurrency?: number; intervalMs?: number } = {},
+) {
+  let stopped = false,
+    filling = false;
+  const active = new Set<Promise<void>>();
+  workerStats.slots = concurrency;
+  const fill = async () => {
+    if (filling || stopped) return;
+    filling = true;
     try {
-      await runWritingJob(db, config);
+      while (!stopped && active.size < concurrency) {
+        const job = await claimJob(db);
+        if (!job) break;
+        const run: Promise<void> = processJob(db, config, job)
+          .catch(() => {
+            /* Durable queued job is retried after the lease. */
+          })
+          .finally(() => {
+            active.delete(run);
+            workerStats.running = active.size;
+            void fill();
+          });
+        active.add(run);
+        workerStats.running = active.size;
+      }
     } catch {
-      /* Durable queued job is retried after the lease. */
+      /* Claim failed (for example a busy database); the next tick retries. */
     } finally {
-      busy = false;
+      filling = false;
     }
-  }, 3000);
+  };
+  const timer = setInterval(() => void fill(), intervalMs);
   timer.unref();
   let housekeeping = false;
   const maintenance = setInterval(async () => {
@@ -390,33 +442,40 @@ export function startWorker(db: Db, config: Config) {
     }
   }, 60000);
   maintenance.unref();
-  return () => {
+  // Stops claiming and waits (up to drainMs) for running jobs, so a shutdown rarely leaves a lease
+  // to expire. Jobs still running after that are retried by another worker when the lease ends.
+  return async (drainMs = 8000) => {
+    stopped = true;
     clearInterval(timer);
     clearInterval(maintenance);
+    if (active.size)
+      await Promise.race([Promise.allSettled([...active]), new Promise(resolve => setTimeout(resolve, drainMs))]);
   };
 }
 
 // Practice Speaking: Gemini listens to each recording (WAV) and returns transcripts, criteria and guidance.
-async function markSpeaking(db: Db, config: Config, job: any) {
+async function markSpeaking(db: Db, config: Config, job: ClaimedJob) {
   if (config.AI_PROVIDER !== "vertex") throw new Error("Speaking marking needs the Google Cloud (Gemini) provider");
-  const questions = snapshotQuestions(job.result.attempt.snapshot).filter((q: any) => q.skill === "Speaking");
+  const questions = snapshotQuestions(job.result.attempt.snapshot).filter(q => q.skill === "Speaking");
   const answers = job.result.attempt.answers as Record<string, string>;
-  const asked = questions.map((q: any) => ({ q, asset: answers[`Speaking:${q.id}`] })).filter((x: any) => x.asset);
+  const asked = questions
+    .map(q => ({ q, asset: answers[`Speaking:${q.id}`] }))
+    .filter((x): x is { q: SnapshotQuestion; asset: string } => !!x.asset);
   const storage = new Storage(config);
   let audio: { id: string; data: Buffer }[];
   try {
     audio = await storage.recordingBytes(
       db,
-      asked.map((x: any) => x.asset),
+      asked.map(x => x.asset),
     );
   } finally {
     storage.close();
   }
-  const parts: any[] = [
+  const parts: GeminiPart[] = [
     {
       text: JSON.stringify({
         course: job.result.course,
-        questions: asked.map((x: any) => ({ questionId: x.q.id, part: x.q.section, question: x.q.prompt })),
+        questions: asked.map(x => ({ questionId: x.q.id, part: x.q.section, question: x.q.prompt })),
       }),
     },
   ];
@@ -444,13 +503,13 @@ async function markSpeaking(db: Db, config: Config, job: any) {
     }),
   });
   if (!response.ok) throw new Error(`Speaking service returned HTTP ${response.status}`);
-  const data = (await response.json()) as any;
-  const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("");
+  const data = (await response.json()) as GeminiResponse;
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text ?? "").join("");
   if (!text) throw new Error("Speaking service did not return an evaluation");
   const output = speakingOutputSchema.parse(JSON.parse(text));
   // Keep only answered questions and corrections that quote the transcript exactly.
   output.questions = output.questions
-    .filter(q => asked.some((x: any) => x.q.id === q.questionId))
+    .filter(q => asked.some(x => x.q.id === q.questionId))
     .map(q => ({
       ...q,
       corrections: q.corrections.filter(c => c.original.trim() && q.transcript.includes(c.original)),

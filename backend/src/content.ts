@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { transaction, json, type Db, type Tx } from "./db.js";
-import { admin, audit, notify, type Identity } from "./auth.js";
+import { admin, audit, type Identity } from "./auth.js";
 import {
   assert,
   course,
@@ -9,6 +9,7 @@ import {
   validateConversions,
   defaultConversions,
   FLT_COUNT,
+  testBuilder,
 } from "./domain.js";
 const sectionIds = z
   .object({
@@ -73,7 +74,7 @@ export async function saveQuestion(db: Db, user: Identity, body: z.infer<typeof 
     if (input.practiceEligible) {
       const tests = await tx.test.findMany({ select: { course: true, id: true, builder: true } });
       const used = tests.find(t =>
-        Object.values((t.builder as any)?.questionIds ?? {})
+        Object.values(testBuilder(t.builder).questionIds ?? {})
           .flat()
           .includes(body.id),
       );
@@ -122,9 +123,9 @@ export async function saveTestRecord(tx: Db | Tx, user: Identity, input: z.infer
     });
     const ids = new Set(all);
     const clash = other.find(t =>
-      Object.values((t.builder as any)?.questionIds ?? {})
+      Object.values(testBuilder(t.builder).questionIds ?? {})
         .flat()
-        .some((id: any) => ids.has(id)),
+        .some(id => typeof id === "string" && ids.has(id)),
     );
     assert(
       !clash,

@@ -185,10 +185,49 @@ export function packSnapshotQuestions(questions: any[]) {
   });
   return { questions: packed, passages };
 }
-export const snapshotQuestions = (snapshot: any): any[] =>
-  (snapshot?.questions ?? []).map((q: any) =>
-    q.passageRef === undefined ? q : { ...q, passage: snapshot.passages?.[q.passageRef] ?? "" },
+// A question as frozen into an attempt snapshot. Reading passages are stored once and referenced by index.
+export interface SnapshotQuestion {
+  id: string;
+  skill: string;
+  section: string;
+  prompt: string;
+  type?: string;
+  questionType?: string;
+  // Accepted answer(s); removed from every student-facing view.
+  answer?: string | string[];
+  passage?: string;
+  passageRef?: number;
+  assetIds?: string[];
+  [field: string]: unknown;
+}
+export interface AttemptSnapshot {
+  questions?: SnapshotQuestion[];
+  passages?: string[];
+  title?: string;
+  // Set for module practice: the single skill being practised.
+  skill?: string;
+  untimed?: boolean;
+}
+// A test paper layout: question IDs and minutes per section.
+export interface TestBuilder {
+  questionIds?: Partial<Record<string, string[]>>;
+  duration?: Partial<Record<string, number>>;
+  [field: string]: unknown;
+}
+export const testBuilder = (builder: unknown) => (builder ?? {}) as TestBuilder;
+// Score bookkeeping kept on a result: AI originals and the modules the paper contained.
+export interface OriginalScores {
+  modules?: string[];
+  [field: string]: unknown;
+}
+export const originalScores = (value: unknown) => (value ?? {}) as OriginalScores;
+export const attemptSnapshot = (snapshot: unknown) => (snapshot ?? {}) as AttemptSnapshot;
+export const snapshotQuestions = (snapshot: unknown): SnapshotQuestion[] => {
+  const s = (snapshot ?? {}) as AttemptSnapshot;
+  return (s.questions ?? []).map(q =>
+    q.passageRef === undefined ? q : { ...q, passage: s.passages?.[q.passageRef] ?? "" },
   );
+};
 export class ApiError extends Error {
   constructor(
     public statusCode: number,

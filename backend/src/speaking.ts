@@ -34,7 +34,7 @@ export async function uploadRecording(
     409,
     "Recordings can be made only while the Speaking section is open",
   );
-  const q = snapshotQuestions(a.snapshot).find((x: any) => x.id === questionId);
+  const q = snapshotQuestions(a.snapshot).find(x => x.id === questionId);
   assert(q && q.skill === "Speaking", 400, "This question is not a Speaking question in this practice");
   assert(
     body.length >= 44 && body.toString("ascii", 0, 4) === "RIFF" && body.toString("ascii", 8, 12) === "WAVE",

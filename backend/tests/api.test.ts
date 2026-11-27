@@ -35,7 +35,8 @@ before(async () => {
     port: 55433,
     persistent: true,
     authMethod: "scram-sha-256",
-    postgresFlags: ["-h", "127.0.0.1", "-c", "io_method=sync"],
+    // A non-UTC session time zone catches SQL that compares UTC timestamps with local NOW().
+    postgresFlags: ["-h", "127.0.0.1", "-c", "io_method=sync", "-c", "timezone=Asia/Kolkata"],
     onLog: () => {},
     onError: () => {},
   });
@@ -752,7 +753,7 @@ test("S3 adapter uploads permitted bytes and streams only entitled student media
       db,
       providerConfig,
       "ACADEMIC",
-      [{ skill: "Writing", section: "Task 1", prompt: "Describe the chart", assetIds: [id] }],
+      [{ id: "w1", skill: "Writing", section: "Task 1", prompt: "Describe the chart", assetIds: [id] }],
       { "Writing:Task 1": "The chart shows growth." },
     );
     assert.equal(request.tasks.length, 1);
@@ -2759,7 +2760,7 @@ test("an attempt stores and sends each Reading passage once, and older snapshots
   const staff = (await call("trainer", "GET", `/api/attempts/${a.id}`)).json();
   assert.ok(staff.questions.filter((q: any) => q.skill === "Reading").every((q: any) => q.passage === text));
   const old = { questions: [{ id: "x", skill: "Reading", passage: "inline" }] };
-  assert.equal(snapshotQuestions(old)[0].passage, "inline");
+  assert.equal(snapshotQuestions(old)[0]?.passage, "inline");
   const packed = packSnapshotQuestions([
     { id: "a", passage: "P1" },
     { id: "b", passage: "P2" },
@@ -2803,4 +2804,159 @@ test("Listening audio position only moves forward, so a reload continues instead
       .statusCode,
     400,
   );
+});
+test("HTTPS deployments use a Secure __Host- session cookie, keep legacy sessions and a strict CSP", async () => {
+  const httpsOrigin = "https://portal.example.test";
+  const secure = await buildApp(
+    db,
+    loadConfig({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://unused",
+      APP_ORIGIN: httpsOrigin,
+      S3_BUCKET: "media-bucket",
+      S3_REGION: "ap-south-1",
+    }),
+  );
+  try {
+    const login = await secure.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { origin: httpsOrigin },
+      payload: { role: "student", identifier: "s2", password: secret },
+    });
+    assert.equal(login.statusCode, 200, login.body);
+    const cookie = login.cookies.find(c => c.name === "__Host-kanan_session" && c.value)!;
+    assert.ok(cookie, "session cookie uses the __Host- prefix");
+    assert.equal(cookie.secure, true);
+    assert.equal(cookie.httpOnly, true);
+    assert.equal(cookie.path, "/");
+    assert.equal(cookie.domain, undefined);
+    assert.equal(login.cookies.find(c => c.name === "kanan_device")?.secure, true);
+    const fresh = await secure.inject({
+      url: "/api/bootstrap",
+      headers: { cookie: `__Host-kanan_session=${cookie.value}` },
+    });
+    assert.equal(fresh.statusCode, 200);
+    // A session issued under the old cookie name keeps working after the deploy.
+    const legacy = await secure.inject({ url: "/api/bootstrap", headers: { cookie: identities.get("s1")!.cookie } });
+    assert.equal(legacy.statusCode, 200);
+    const csp = String(fresh.headers["content-security-policy"]);
+    const directive = (name: string) =>
+      csp
+        .split(";")
+        .find(d => d.trim().startsWith(`${name} `))
+        ?.trim() ?? "";
+    assert.ok(!/(^|\s)https:(\s|$)/.test(directive("media-src")), csp);
+    assert.ok(directive("media-src").includes("https://media-bucket.s3.ap-south-1.amazonaws.com"), csp);
+    assert.ok(!directive("style-src").includes("unsafe-inline"), csp);
+    assert.ok(!directive("style-src-elem").includes("unsafe-inline"), csp);
+    assert.ok(directive("style-src-attr").includes("unsafe-inline"), csp);
+  } finally {
+    await secure.close();
+  }
+});
+test("responses carry request IDs; metrics need the token; readiness hides queue detail", async () => {
+  const token = `metrics-${randomUUID()}`;
+  const observed = await buildApp(
+    db,
+    loadConfig({ NODE_ENV: "test", DATABASE_URL: "postgresql://unused", APP_ORIGIN: origin, METRICS_TOKEN: token }),
+  );
+  try {
+    const health = await observed.inject({ url: "/api/health", headers: { "x-request-id": "trace-abc-12345" } });
+    assert.equal(health.statusCode, 200);
+    assert.equal(health.headers["x-request-id"], "trace-abc-12345");
+    const generated = await observed.inject({ url: "/api/health", headers: { "x-request-id": "bad id\n" } });
+    assert.match(String(generated.headers["x-request-id"]), /^[0-9a-f-]{36}$/);
+    const ready = await observed.inject({ url: "/api/health/ready" });
+    assert.equal(ready.statusCode, 200);
+    assert.deepEqual(ready.json(), { status: "ready", database: "ok" });
+    const detailed = await observed.inject({ url: "/api/health/ready", headers: { authorization: `Bearer ${token}` } });
+    assert.equal(typeof detailed.json().queue.pending, "number");
+    assert.equal((await observed.inject({ url: "/api/metrics" })).statusCode, 404);
+    assert.equal(
+      (await observed.inject({ url: "/api/metrics", headers: { authorization: "Bearer wrong-token-value-123456" } }))
+        .statusCode,
+      404,
+    );
+    const metrics = await observed.inject({ url: "/api/metrics", headers: { authorization: `Bearer ${token}` } });
+    assert.equal(metrics.statusCode, 200);
+    assert.match(metrics.body, /portal_http_requests_total\{method="GET",route="\/api\/health",status="2xx"\} \d+/);
+    assert.match(metrics.body, /portal_queue_jobs\{state="pending"\} \d+/);
+    // Metrics are labelled by route pattern, never by raw IDs.
+    assert.ok(!metrics.body.includes("trace-abc"));
+  } finally {
+    await observed.close();
+  }
+  // Without a token the metrics route does not exist.
+  assert.equal(
+    (await app.inject({ url: "/api/metrics", headers: { authorization: "Bearer anything-at-all-123" } })).statusCode,
+    404,
+  );
+});
+test("the per-user write limit is enforced in memory without a database row", async () => {
+  const { ActionLimiter } = await import("../src/action-limit.js");
+  const limiter = new ActionLimiter(3, 1000);
+  try {
+    const now = Date.now();
+    for (let i = 0; i < 3; i++) limiter.hit("u", now);
+    assert.throws(() => limiter.hit("u", now), /Too many requests/);
+    assert.doesNotThrow(() => limiter.hit("other", now));
+    assert.doesNotThrow(() => limiter.hit("u", now + 1001));
+  } finally {
+    limiter.close();
+  }
+  const before = await db.loginThrottle.count({ where: { key: { startsWith: "action:" } } });
+  assert.equal((await call("s1", "PUT", "/api/student/goals", { targetBand: 7 })).statusCode < 500, true);
+  assert.equal(await db.loginThrottle.count({ where: { key: { startsWith: "action:" } } }), before);
+});
+test("parallel worker slots process each queued job exactly once", async () => {
+  const { startWorker } = await import("../src/worker.js");
+  const ids: string[] = [];
+  for (let i = 0; i < 4; i++) ids.push(await submitted("PRACTICE_MOCK"));
+  const resultIds = ids; // a result shares its attempt ID
+  assert.ok((await db.evaluationJob.count({ where: { resultId: { in: resultIds }, state: "PENDING" } })) >= ids.length);
+  let running = 0,
+    peak = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: any) => {
+    if (String(input).includes("metadata.google.internal"))
+      return new Response(JSON.stringify({ access_token: "metadata-token" }), { status: 200 });
+    running++;
+    peak = Math.max(peak, running);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    running--;
+    // A provider error makes each job wait 30 s before a retry, so no job is claimed twice here.
+    return new Response("unavailable", { status: 503 });
+  };
+  const stop = startWorker(
+    db,
+    loadConfig({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://unused",
+      AI_PROVIDER: "vertex",
+      VERTEX_PROJECT: "demo-project",
+      VERTEX_MODEL: "gemini-test-flash",
+    }),
+    { concurrency: 3, intervalMs: 50 },
+  );
+  try {
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const left = await db.evaluationJob.count({
+        where: { resultId: { in: resultIds }, OR: [{ state: "RUNNING" }, { state: "PENDING", attempts: 0 }] },
+      });
+      if (!left) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } finally {
+    await stop();
+    globalThis.fetch = originalFetch;
+  }
+  const jobs = await db.evaluationJob.findMany({ where: { resultId: { in: resultIds } } });
+  assert.ok(jobs.length >= ids.length);
+  assert.ok(
+    jobs.every(j => j.attempts === 1 && j.state === "PENDING"),
+    JSON.stringify(jobs.map(j => [j.state, j.attempts])),
+  );
+  assert.ok(peak > 1 && peak <= 3, `peak parallel jobs ${peak}`);
 });

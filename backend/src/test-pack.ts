@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "./db.js";
 import { json, transaction } from "./db.js";
-import { questionSchema, assert, course, identifier, FLT_COUNT } from "./domain.js";
+import { questionSchema, assert, course, identifier, FLT_COUNT, testBuilder } from "./domain.js";
 import { admin, audit, type Identity } from "./auth.js";
 import { saveTestRecord } from "./content.js";
 
@@ -139,7 +139,7 @@ export async function installTestPack(
     // Never overwrite a live slot or a different paper; rerunning the same pack is a no-op for the builder.
     if (old) {
       assert(!old.published, 409, `${pack.course}/${id} is published. Unpublish it before replacing its paper`);
-      const placed = ((old.builder as any)?.questionIds ?? {}) as Record<string, string[]>;
+      const placed = testBuilder(old.builder).questionIds ?? {};
       const same = (Object.keys(questionIds) as (keyof typeof questionIds)[]).every(
         s => (placed[s] ?? []).join() === questionIds[s].join(),
       );

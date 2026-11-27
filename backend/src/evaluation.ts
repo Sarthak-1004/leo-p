@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { lockedTransaction, json, Prisma, type Db } from "./db.js";
-import { assert, band, criteria, date, overall } from "./domain.js";
+import { assert, band, criteria, date, overall, snapshotQuestions } from "./domain.js";
 import { admin, audit, notify, staff, type Identity } from "./auth.js";
 import { resultView } from "./views.js";
 export const evaluationSchema = z
@@ -58,7 +58,7 @@ export async function evaluate(db: Db, user: Identity, id: string, input: z.infe
       400,
       "A released result needs Listening, Reading and Writing bands",
     );
-    const modules = new Set(((result.attempt.snapshot as any).questions as any[]).map(q => q.skill));
+    const modules = new Set(snapshotQuestions(result.attempt.snapshot).map(q => q.skill));
     if (result.kind === "PRACTICE")
       for (const key of ["listening", "reading", "writing"] as const)
         assert(

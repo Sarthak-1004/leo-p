@@ -1,7 +1,7 @@
 import { randomBytes, createHash, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { availableParallelism } from "node:os";
 import type { FastifyRequest } from "fastify";
-import type { Config } from "./config.js";
+import { LEGACY_SESSION_COOKIE, sessionCookieName, type Config } from "./config.js";
 import type { Db, Tx } from "./db.js";
 import type { User, Student } from "./generated/prisma/client.js";
 import { ApiError, assert, today } from "./domain.js";
@@ -69,7 +69,8 @@ export async function authenticate(
   config: Config,
   allowInactive = false,
 ): Promise<Authenticated> {
-  const token = req.cookies.kanan_session;
+  // Sessions issued before the __Host- cookie name stay valid until they expire.
+  const token = req.cookies[sessionCookieName(config)] ?? req.cookies[LEGACY_SESSION_COOKIE];
   assert(token && token.length <= 256, 401, "Sign in to continue");
   const session = await db.session.findUnique({
     where: { tokenHash: digest(token) },
