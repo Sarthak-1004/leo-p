@@ -254,8 +254,14 @@ export const today = (timezone: string, now = new Date()) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
     now,
   );
+// Answer keys are "<Skill>:<question id or Writing task>". The skill prefix keeps keys such as
+// __proto__ or constructor out of the objects that merge saved answers.
+export const answerKey = z
+  .string()
+  .max(120)
+  .regex(/^(Listening|Reading|Writing|Speaking):[^ ]{1,100}$/, "Unknown answer field");
 export const answerMap = z
-  .record(z.string().max(120), z.string().max(50000))
+  .record(answerKey, z.string().max(50000))
   .refine(value => Object.keys(value).length <= 200, "Too many answers");
 export const heartbeatSchema = z
   .object({

@@ -320,7 +320,8 @@ test("answers and display preferences persist, duplicate signals are safe, other
         answers: { unknown: "answer" },
       })
     ).statusCode,
-    409,
+    // A key without a skill prefix is rejected as malformed before any attempt logic runs.
+    400,
   );
 });
 test("disconnected gaps do not consume time and the fourth interruption is flagged", async () => {
