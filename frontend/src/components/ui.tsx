@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon } from "./Icon";
 export function Button({
@@ -16,11 +10,7 @@ export function Button({
   variant?: "primary" | "secondary" | "ghost" | "danger";
 }) {
   return (
-    <button
-      type="button"
-      className={`btn btn-${variant} ${className}`}
-      {...props}
-    >
+    <button type="button" className={`btn btn-${variant} ${className}`} {...props}>
       {children}
     </button>
   );
@@ -49,13 +39,7 @@ export function Badge({
 }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
-export function Card({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{children}</section>;
 }
 export function PageHeader({
@@ -83,13 +67,7 @@ export function PageHeader({
 export function ContentContainer({ children }: { children: ReactNode }) {
   return <div className="content-container">{children}</div>;
 }
-export function SectionTitle({
-  title,
-  detail,
-}: {
-  title: string;
-  detail?: ReactNode;
-}) {
+export function SectionTitle({ title, detail }: { title: string; detail?: ReactNode }) {
   return (
     <div className="section-title">
       <h2>{title}</h2>
@@ -97,13 +75,7 @@ export function SectionTitle({
     </div>
   );
 }
-export function ProgressBar({
-  value,
-  label,
-}: {
-  value: number;
-  label: string;
-}) {
+export function ProgressBar({ value, label }: { value: number; label: string }) {
   return (
     <div
       className="progress-track"
@@ -117,31 +89,12 @@ export function ProgressBar({
     </div>
   );
 }
-export function ProgressRing({
-  value,
-  label,
-  size = 80,
-}: {
-  value: number;
-  label: string;
-  size?: number;
-}) {
+export function ProgressRing({ value, label, size = 80 }: { value: number; label: string; size?: number }) {
   return (
-    <div
-      className="progress-ring"
-      style={{ width: size, height: size }}
-      role="img"
-      aria-label={label}
-    >
+    <div className="progress-ring" style={{ width: size, height: size }} role="img" aria-label={label}>
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <circle cx="50" cy="50" r="42" className="ring-track" />
-        <circle
-          cx="50"
-          cy="50"
-          r="42"
-          className="ring-fill"
-          strokeDasharray={`${value * 2.64} 264`}
-        />
+        <circle cx="50" cy="50" r="42" className="ring-fill" strokeDasharray={`${value * 2.64} 264`} />
       </svg>
       <strong>{label}</strong>
     </div>
@@ -176,17 +129,17 @@ export function Tabs<T extends string>({
   value,
   onChange,
   label,
-  disabledOptions=[],
+  disabledOptions = [],
 }: {
   options: readonly T[];
   value: T;
   onChange: (value: T) => void;
   label: string;
-  disabledOptions?:T[];
+  disabledOptions?: T[];
 }) {
   return (
     <div className="tabs" role="group" aria-label={label}>
-      {options.map((option) => (
+      {options.map(option => (
         <button
           key={option}
           type="button"
@@ -255,14 +208,10 @@ export function EmptyState({
 }
 export function LoadingState() {
   return (
-    <div
-      className="content-container"
-      role="status"
-      aria-label="Loading portal"
-    >
+    <div className="content-container" role="status" aria-label="Loading portal">
       <div className="skeleton h-10 w-64" />
       <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        {[1, 2, 3, 4].map((i) => (
+        {[1, 2, 3, 4].map(i => (
           <div key={i} className="skeleton h-40" />
         ))}
       </div>
@@ -281,15 +230,7 @@ export function ErrorState({ retry }: { retry: () => void }) {
     </Card>
   );
 }
-export function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -304,19 +245,14 @@ export function Modal({
     <dialog
       ref={ref}
       className="modal"
-      onCancel={(e) => {
+      onCancel={e => {
         e.preventDefault();
         onClose();
       }}
-      onClick={(e) => {
+      onClick={e => {
         if (e.target === e.currentTarget) {
           const rect = e.currentTarget.getBoundingClientRect();
-          if (
-            e.clientX < rect.left ||
-            e.clientX > rect.right ||
-            e.clientY < rect.top ||
-            e.clientY > rect.bottom
-          )
+          if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)
             onClose();
         }
       }}
@@ -324,11 +260,7 @@ export function Modal({
     >
       <div className="modal-heading">
         <h2>{title}</h2>
-        <button
-          className="icon-button"
-          onClick={onClose}
-          aria-label="Close dialog"
-        >
+        <button className="icon-button" onClick={onClose} aria-label="Close dialog">
           <Icon name="close" />
         </button>
       </div>
@@ -337,16 +269,21 @@ export function Modal({
   );
 }
 
-export function FilterPanel({children,title="Filters and sorting"}:{children:ReactNode;title?:string}) {
-  const [open,setOpen]=useState(()=>window.matchMedia("(min-width: 768px)").matches);
-  useEffect(()=>{
-    const media=window.matchMedia("(min-width: 768px)");
-    const resize=()=>setOpen(media.matches);
-    media.addEventListener("change",resize);
-    return ()=>media.removeEventListener("change",resize);
-  },[]);
-  return <details className="filter-panel" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
-    <summary>{title}<Icon name="chevron" size={16}/></summary>
-    <div className="filter-panel-body">{children}</div>
-  </details>;
+export function FilterPanel({ children, title = "Filters and sorting" }: { children: ReactNode; title?: string }) {
+  const [open, setOpen] = useState(() => window.matchMedia("(min-width: 768px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const resize = () => setOpen(media.matches);
+    media.addEventListener("change", resize);
+    return () => media.removeEventListener("change", resize);
+  }, []);
+  return (
+    <details className="filter-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>
+        {title}
+        <Icon name="chevron" size={16} />
+      </summary>
+      <div className="filter-panel-body">{children}</div>
+    </details>
+  );
 }

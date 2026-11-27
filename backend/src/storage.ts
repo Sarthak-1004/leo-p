@@ -5,61 +5,166 @@ import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 import { admin, audit, type Identity } from "./auth.js";
 import { assert } from "./domain.js";
-import {platformSettings} from "./settings.js";
-import {validateMedia} from "./media-validation.js";
+import { platformSettings } from "./settings.js";
+import { validateMedia } from "./media-validation.js";
 export class Storage {
-  private client:S3Client;
-  constructor(private config:Config) { // Checksums only when required: S3-compatible stores such as Google Cloud Storage reject the SDK's default extra checksum headers.
-    this.client=new S3Client({region:config.S3_REGION,endpoint:config.S3_ENDPOINT,forcePathStyle:!!config.S3_ENDPOINT,requestChecksumCalculation:"WHEN_REQUIRED",responseChecksumValidation:"WHEN_REQUIRED",credentials:config.S3_ACCESS_KEY_ID&&config.S3_SECRET_ACCESS_KEY?{accessKeyId:config.S3_ACCESS_KEY_ID,secretAccessKey:config.S3_SECRET_ACCESS_KEY}:undefined}); }
-  private bucket(){assert(this.config.S3_BUCKET,503,"File storage is not configured");return this.config.S3_BUCKET;}
-  close(){this.client.destroy();}
+  private client: S3Client;
+  constructor(private config: Config) {
+    // Checksums only when required: S3-compatible stores such as Google Cloud Storage reject the SDK's default extra checksum headers.
+    this.client = new S3Client({
+      region: config.S3_REGION,
+      endpoint: config.S3_ENDPOINT,
+      forcePathStyle: !!config.S3_ENDPOINT,
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+      credentials:
+        config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY
+          ? { accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY }
+          : undefined,
+    });
+  }
+  private bucket() {
+    assert(this.config.S3_BUCKET, 503, "File storage is not configured");
+    return this.config.S3_BUCKET;
+  }
+  close() {
+    this.client.destroy();
+  }
   // Internal worker access only; never exposed as a student URL or public bucket object.
-  async evaluationImages(db:Db,ids:string[]){
-    const unique=[...new Set(ids)];assert(unique.length<=10,400,"Too many task images");
-    const assets=await db.asset.findMany({where:{id:{in:unique}}});assert(assets.length===unique.length,400,"A task image is unavailable");
-    assert(assets.every(a=>["image/png","image/jpeg","image/webp"].includes(a.contentType)),400,"Writing evaluation accepts task images only");
-    assert(assets.reduce((sum,a)=>sum+a.size,0)<=20*1024*1024,400,"Task images exceed the 20 MB evaluation limit");
-    const output=[];let total=0;
-    for(const id of unique){const asset=assets.find(a=>a.id===id)!;const object=await this.client.send(new GetObjectCommand({Bucket:this.bucket(),Key:asset.key}));assert(object.Body,503,"A task image is unavailable");assert((object.ContentLength??asset.size)+total<=20*1024*1024,400,"Task images exceed the evaluation limit");const bytes=await object.Body.transformToByteArray();total+=bytes.length;assert(total<=20*1024*1024,400,"Task images exceed the evaluation limit");output.push({id,imageUrl:`data:${asset.contentType};base64,${Buffer.from(bytes).toString("base64")}`});}
+  async evaluationImages(db: Db, ids: string[]) {
+    const unique = [...new Set(ids)];
+    assert(unique.length <= 10, 400, "Too many task images");
+    const assets = await db.asset.findMany({ where: { id: { in: unique } } });
+    assert(assets.length === unique.length, 400, "A task image is unavailable");
+    assert(
+      assets.every(a => ["image/png", "image/jpeg", "image/webp"].includes(a.contentType)),
+      400,
+      "Writing evaluation accepts task images only",
+    );
+    assert(
+      assets.reduce((sum, a) => sum + a.size, 0) <= 20 * 1024 * 1024,
+      400,
+      "Task images exceed the 20 MB evaluation limit",
+    );
+    const output = [];
+    let total = 0;
+    for (const id of unique) {
+      const asset = assets.find(a => a.id === id)!;
+      const object = await this.client.send(new GetObjectCommand({ Bucket: this.bucket(), Key: asset.key }));
+      assert(object.Body, 503, "A task image is unavailable");
+      assert(
+        (object.ContentLength ?? asset.size) + total <= 20 * 1024 * 1024,
+        400,
+        "Task images exceed the evaluation limit",
+      );
+      const bytes = await object.Body.transformToByteArray();
+      total += bytes.length;
+      assert(total <= 20 * 1024 * 1024, 400, "Task images exceed the evaluation limit");
+      output.push({ id, imageUrl: `data:${asset.contentType};base64,${Buffer.from(bytes).toString("base64")}` });
+    }
     return output;
   }
-  async upload(db:Db,user:Identity,filename:string,body:Buffer) {
-    admin(user);const limit=(await platformSettings(db)).mediaLimitMb;assert(body.length>0&&body.length<=limit*1024*1024,400,`Choose media up to ${limit} MB`);
-    const validated=await validateMedia(body),contentType=validated.contentType;body=validated.body;
-    assert(body.length<=limit*1024*1024,400,`Decoded media exceeds ${limit} MB`);
-    const key=`assessment/${randomUUID()}`;
-    await this.client.send(new PutObjectCommand({Bucket:this.bucket(),Key:key,Body:body,ContentType:contentType}));
-    const asset=await db.asset.create({data:{key,filename:filename.replace(/[\r\n\\/]/g,"_").slice(0,200),contentType,size:body.length,uploadedBy:user.id}});
-    await audit(db,user.id,"Media uploaded",asset.id,{contentType,size:body.length});
-    return {id:asset.id,filename:asset.filename,contentType,size:body.length};
+  async upload(db: Db, user: Identity, filename: string, body: Buffer) {
+    admin(user);
+    const limit = (await platformSettings(db)).mediaLimitMb;
+    assert(body.length > 0 && body.length <= limit * 1024 * 1024, 400, `Choose media up to ${limit} MB`);
+    const validated = await validateMedia(body),
+      contentType = validated.contentType;
+    body = validated.body;
+    assert(body.length <= limit * 1024 * 1024, 400, `Decoded media exceeds ${limit} MB`);
+    const key = `assessment/${randomUUID()}`;
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket(), Key: key, Body: body, ContentType: contentType }),
+    );
+    const asset = await db.asset.create({
+      data: {
+        key,
+        filename: filename.replace(/[\r\n\\/]/g, "_").slice(0, 200),
+        contentType,
+        size: body.length,
+        uploadedBy: user.id,
+      },
+    });
+    await audit(db, user.id, "Media uploaded", asset.id, { contentType, size: body.length });
+    return { id: asset.id, filename: asset.filename, contentType, size: body.length };
   }
   // A student's own practice Speaking recording (validated by the caller), stored privately.
-  async putRecording(db:Db,user:Identity,key:string,body:Buffer) {
-    await this.client.send(new PutObjectCommand({Bucket:this.bucket(),Key:key,Body:body,ContentType:"audio/wav"}));
-    const asset=await db.asset.create({data:{key,filename:"recording.wav",contentType:"audio/wav",size:body.length,uploadedBy:user.id}});
-    return {id:asset.id,size:body.length};
+  async putRecording(db: Db, user: Identity, key: string, body: Buffer) {
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket(), Key: key, Body: body, ContentType: "audio/wav" }),
+    );
+    const asset = await db.asset.create({
+      data: { key, filename: "recording.wav", contentType: "audio/wav", size: body.length, uploadedBy: user.id },
+    });
+    return { id: asset.id, size: body.length };
   }
-  async recordingBytes(db:Db,ids:string[]){
-    const assets=await db.asset.findMany({where:{id:{in:ids}}});
-    const out:{id:string;data:Buffer}[]=[];
-    for(const a of assets){assert(a.key.startsWith("recordings/"),400,"Not a Speaking recording");const object=await this.client.send(new GetObjectCommand({Bucket:this.bucket(),Key:a.key}));assert(object.Body,503,"A recording is unavailable");out.push({id:a.id,data:Buffer.from(await object.Body.transformToByteArray())});}
+  async recordingBytes(db: Db, ids: string[]) {
+    const assets = await db.asset.findMany({ where: { id: { in: ids } } });
+    const out: { id: string; data: Buffer }[] = [];
+    for (const a of assets) {
+      assert(a.key.startsWith("recordings/"), 400, "Not a Speaking recording");
+      const object = await this.client.send(new GetObjectCommand({ Bucket: this.bucket(), Key: a.key }));
+      assert(object.Body, 503, "A recording is unavailable");
+      out.push({ id: a.id, data: Buffer.from(await object.Body.transformToByteArray()) });
+    }
     return out;
   }
-  async readUrl(db:Db,user:Identity,id:string) {
-    const asset=await db.asset.findUnique({where:{id}});assert(asset,404,"Media not found");
-    if(user.role === "STUDENT" && !asset.key.startsWith(`recordings/${user.id}/`)) {
-      const practice=await db.question.findFirst({where:{assetIds:{has:id},course:{in:[user.student!.course,"BOTH"]},published:true,archived:false,practiceEligible:true},select:{id:true}});
-      const attempts=practice?[]:await db.attempt.findMany({where:{studentId:user.id,course:user.student!.course},select:{snapshot:true,state:true,section:true,id:true,result:{select:{released:true,kind:true}}}});
+  async readUrl(db: Db, user: Identity, id: string) {
+    const asset = await db.asset.findUnique({ where: { id } });
+    assert(asset, 404, "Media not found");
+    if (user.role === "STUDENT" && !asset.key.startsWith(`recordings/${user.id}/`)) {
+      const practice = await db.question.findFirst({
+        where: {
+          assetIds: { has: id },
+          course: { in: [user.student!.course, "BOTH"] },
+          published: true,
+          archived: false,
+          practiceEligible: true,
+        },
+        select: { id: true },
+      });
+      const attempts = practice
+        ? []
+        : await db.attempt.findMany({
+            where: { studentId: user.id, course: user.student!.course },
+            select: {
+              snapshot: true,
+              state: true,
+              section: true,
+              id: true,
+              result: { select: { released: true, kind: true } },
+            },
+          });
       // In-progress tests expose only the open section's media, matching the questions sent.
-      assert(practice||attempts.some(a=>{const s=a.snapshot as any;const open=s.skill??["Listening","Reading","Writing","Speaking"][a.section];return s.questions?.some((q:any)=>(q.skill!=="Speaking"||s.skill==="Speaking")&&q.assetIds?.includes(id)&&(a.state==="IN_PROGRESS"?q.skill===open:a.result?.released||a.result?.kind!=="FLT"));}),404,"Media not found");
+      assert(
+        practice ||
+          attempts.some(a => {
+            const s = a.snapshot as any;
+            const open = s.skill ?? ["Listening", "Reading", "Writing", "Speaking"][a.section];
+            return s.questions?.some(
+              (q: any) =>
+                (q.skill !== "Speaking" || s.skill === "Speaking") &&
+                q.assetIds?.includes(id) &&
+                (a.state === "IN_PROGRESS" ? q.skill === open : a.result?.released || a.result?.kind !== "FLT"),
+            );
+          }),
+        404,
+        "Media not found",
+      );
     }
-    await this.client.send(new HeadObjectCommand({Bucket:this.bucket(),Key:asset.key}));
-    return {url:await getSignedUrl(this.client,new GetObjectCommand({Bucket:this.bucket(),Key:asset.key}),{expiresIn:120}),expiresIn:120,contentType:asset.contentType};
+    await this.client.send(new HeadObjectCommand({ Bucket: this.bucket(), Key: asset.key }));
+    return {
+      url: await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket(), Key: asset.key }), {
+        expiresIn: 120,
+      }),
+      expiresIn: 120,
+      contentType: asset.contentType,
+    };
   }
-  async stream(db:Db,user:Identity,id:string,range?:string) {
-    await this.readUrl(db,user,id);
-    const asset=await db.asset.findUniqueOrThrow({where:{id}});
-    assert(!range||/^bytes=\d*-\d*$/.test(range),400,"Invalid media range");
-    return this.client.send(new GetObjectCommand({Bucket:this.bucket(),Key:asset.key,Range:range}));
+  async stream(db: Db, user: Identity, id: string, range?: string) {
+    await this.readUrl(db, user, id);
+    const asset = await db.asset.findUniqueOrThrow({ where: { id } });
+    assert(!range || /^bytes=\d*-\d*$/.test(range), 400, "Invalid media range");
+    return this.client.send(new GetObjectCommand({ Bucket: this.bucket(), Key: asset.key, Range: range }));
   }
 }

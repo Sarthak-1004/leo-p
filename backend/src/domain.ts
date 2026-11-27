@@ -5,30 +5,89 @@ export const skill = z.enum(["Listening", "Reading", "Writing", "Speaking"]);
 export const onlineSkills = ["Listening", "Reading", "Writing"] as const;
 export const band = z.number().min(0).max(9).multipleOf(0.5);
 export const date = z.iso.date();
-export const identifier = z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9_-]+$/);
-const commonPasswords = ["password", "passw0rd", "qwerty", "123456", "abcdef", "letmein", "welcome", "admin", "student", "kanan", "ielts", "iloveyou"];
+export const identifier = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[a-zA-Z0-9_-]+$/);
+const commonPasswords = [
+  "password",
+  "passw0rd",
+  "qwerty",
+  "123456",
+  "abcdef",
+  "letmein",
+  "welcome",
+  "admin",
+  "student",
+  "kanan",
+  "ielts",
+  "iloveyou",
+];
 // Admin-set passwords: length alone let "aaaaaaaaaaaa" through.
-export const password = z.string().min(12).max(128)
+export const password = z
+  .string()
+  .min(12)
+  .max(128)
   .refine(p => new Set(p).size >= 6, "Use at least 6 different characters")
-  .refine(p => !/^(.)\1+$/.test(p) && !/^(?:0123456789|1234567890|abcdefghij)/i.test(p), "Avoid repeated or sequential characters")
-  .refine(p => !commonPasswords.includes(p.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/\d+$/, "")), "Choose a less common password");
-export const criteria = z.object({ fluency: z.number().int().min(0).max(9), lexical: z.number().int().min(0).max(9), grammar: z.number().int().min(0).max(9), pronunciation: z.number().int().min(0).max(9) }).strict();
-export const settingsSchema = z.object({
-  institutionName: z.string().trim().min(1).max(120), interruptionLimit: z.number().int().min(0).max(100), leaderboard: z.boolean(),
-  supportEmail:z.union([z.email(),z.literal("")]).default(""),supportPhone:z.string().trim().max(60).default(""),supportAddress:z.string().trim().max(500).default(""),
-  defaultAccessDays:z.number().int().min(1).max(3650).default(180),mediaLimitMb:z.number().int().min(1).max(20).default(20),
-  autoWritingEvaluation:z.boolean().default(true),expiryReminders:z.boolean().default(true),backlogNotifications:z.boolean().default(true),
-  // An attempt open longer than this (wall clock, from start) is submitted automatically with its saved answers.
-  attemptWindowHours:z.number().int().min(1).max(168).default(12),
-  // Paid Writing AI limits: per student per day for module practice, and for the whole portal per day.
-  dailyPracticeAiLimit:z.number().int().min(0).max(100).default(5),dailyAiBudget:z.number().int().min(0).max(10000).default(300),
-  dailyPracticeLimit:z.number().int().min(1).max(1000).default(60),
-}).strict();
+  .refine(
+    p => !/^(.)\1+$/.test(p) && !/^(?:0123456789|1234567890|abcdefghij)/i.test(p),
+    "Avoid repeated or sequential characters",
+  )
+  .refine(
+    p =>
+      !commonPasswords.includes(
+        p
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+          .replace(/\d+$/, ""),
+      ),
+    "Choose a less common password",
+  );
+export const criteria = z
+  .object({
+    fluency: z.number().int().min(0).max(9),
+    lexical: z.number().int().min(0).max(9),
+    grammar: z.number().int().min(0).max(9),
+    pronunciation: z.number().int().min(0).max(9),
+  })
+  .strict();
+export const settingsSchema = z
+  .object({
+    institutionName: z.string().trim().min(1).max(120),
+    interruptionLimit: z.number().int().min(0).max(100),
+    leaderboard: z.boolean(),
+    supportEmail: z.union([z.email(), z.literal("")]).default(""),
+    supportPhone: z.string().trim().max(60).default(""),
+    supportAddress: z.string().trim().max(500).default(""),
+    defaultAccessDays: z.number().int().min(1).max(3650).default(180),
+    mediaLimitMb: z.number().int().min(1).max(20).default(20),
+    autoWritingEvaluation: z.boolean().default(true),
+    expiryReminders: z.boolean().default(true),
+    backlogNotifications: z.boolean().default(true),
+    // An attempt open longer than this (wall clock, from start) is submitted automatically with its saved answers.
+    attemptWindowHours: z.number().int().min(1).max(168).default(12),
+    // Paid Writing AI limits: per student per day for module practice, and for the whole portal per day.
+    dailyPracticeAiLimit: z.number().int().min(0).max(100).default(5),
+    dailyAiBudget: z.number().int().min(0).max(10000).default(300),
+    dailyPracticeLimit: z.number().int().min(1).max(1000).default(60),
+  })
+  .strict();
 // Full Length Tests per course (client decision, 16 Nov 2026). Slots are seeded as unpublished drafts.
 export const FLT_COUNT = 52;
-export const defaultSettings = settingsSchema.parse({ institutionName: "Kanan IELTS Practice Portal", interruptionLimit: 3, leaderboard: false });
+export const defaultSettings = settingsSchema.parse({
+  institutionName: "Kanan IELTS Practice Portal",
+  interruptionLimit: 3,
+  leaderboard: false,
+});
 export const roundBand = (n: number) => Math.round((n + Number.EPSILON) * 2) / 2;
-export function overall(scores: { listening: number | null; reading: number | null; writing: number | null; speaking: number | null }): number | null {
+export function overall(scores: {
+  listening: number | null;
+  reading: number | null;
+  writing: number | null;
+  speaking: number | null;
+}): number | null {
   if ([scores.listening, scores.reading, scores.writing].some(n => n === null)) return null;
   const values = [scores.listening!, scores.reading!, scores.writing!];
   if (scores.speaking !== null) values.push(scores.speaking);
@@ -36,9 +95,63 @@ export function overall(scores: { listening: number | null; reading: number | nu
 }
 // Official IELTS rows down to band 4 (General Reading 3), then the low-score extension the client approved on 16 Nov 2026.
 export const defaultConversions = {
-  Listening: [[39,9],[37,8.5],[35,8],[32,7.5],[30,7],[26,6.5],[23,6],[18,5.5],[16,5],[13,4.5],[10,4],[8,3.5],[6,3],[4,2.5],[3,2],[1,1],[0,0]],
-  AcademicReading: [[39,9],[37,8.5],[35,8],[33,7.5],[30,7],[27,6.5],[23,6],[19,5.5],[15,5],[13,4.5],[10,4],[8,3.5],[6,3],[4,2.5],[3,2],[1,1],[0,0]],
-  GeneralReading: [[40,9],[39,8.5],[37,8],[36,7.5],[34,7],[32,6.5],[30,6],[27,5.5],[23,5],[19,4.5],[15,4],[12,3.5],[9,3],[6,2.5],[3,2],[1,1],[0,0]],
+  Listening: [
+    [39, 9],
+    [37, 8.5],
+    [35, 8],
+    [32, 7.5],
+    [30, 7],
+    [26, 6.5],
+    [23, 6],
+    [18, 5.5],
+    [16, 5],
+    [13, 4.5],
+    [10, 4],
+    [8, 3.5],
+    [6, 3],
+    [4, 2.5],
+    [3, 2],
+    [1, 1],
+    [0, 0],
+  ],
+  AcademicReading: [
+    [39, 9],
+    [37, 8.5],
+    [35, 8],
+    [33, 7.5],
+    [30, 7],
+    [27, 6.5],
+    [23, 6],
+    [19, 5.5],
+    [15, 5],
+    [13, 4.5],
+    [10, 4],
+    [8, 3.5],
+    [6, 3],
+    [4, 2.5],
+    [3, 2],
+    [1, 1],
+    [0, 0],
+  ],
+  GeneralReading: [
+    [40, 9],
+    [39, 8.5],
+    [37, 8],
+    [36, 7.5],
+    [34, 7],
+    [32, 6.5],
+    [30, 6],
+    [27, 5.5],
+    [23, 5],
+    [19, 4.5],
+    [15, 4],
+    [12, 3.5],
+    [9, 3],
+    [6, 2.5],
+    [3, 2],
+    [1, 1],
+    [0, 0],
+  ],
 };
 export const conversionsSchema = z.record(z.string(), z.array(z.tuple([z.number().int().min(0).max(40), band])));
 export type Conversions = z.infer<typeof conversionsSchema>;
@@ -46,8 +159,12 @@ export function validateConversions(value: unknown, complete = false): Conversio
   const tables = conversionsSchema.parse(value);
   for (const name of Object.keys(defaultConversions)) {
     const rows = tables[name];
-    if (!rows?.length || (complete && rows.at(-1)?.[0] !== 0)) throw new ApiError(400, "Supply a complete conversion table for each skill/course");
-    rows.forEach(([minimum, value], i) => { if (i && (minimum >= rows[i-1]![0] || value > rows[i-1]![1])) throw new ApiError(400, "Conversion thresholds must be unique and descending"); });
+    if (!rows?.length || (complete && rows.at(-1)?.[0] !== 0))
+      throw new ApiError(400, "Supply a complete conversion table for each skill/course");
+    rows.forEach(([minimum, value], i) => {
+      if (i && (minimum >= rows[i - 1]![0] || value > rows[i - 1]![1]))
+        throw new ApiError(400, "Conversion thresholds must be unique and descending");
+    });
   }
   return tables;
 }
@@ -60,21 +177,82 @@ export function rawBand(raw: number, module: string, track: string, tables: Conv
 // Papers frozen before this change carry the passage on every question and read back unchanged.
 export function packSnapshotQuestions(questions: any[]) {
   const passages: string[] = [];
-  const packed = questions.map(q => { if (!q?.passage) return q; let ref = passages.indexOf(q.passage); if (ref < 0) ref = passages.push(q.passage) - 1; return { ...q, passage: "", passageRef: ref }; });
+  const packed = questions.map(q => {
+    if (!q?.passage) return q;
+    let ref = passages.indexOf(q.passage);
+    if (ref < 0) ref = passages.push(q.passage) - 1;
+    return { ...q, passage: "", passageRef: ref };
+  });
   return { questions: packed, passages };
 }
-export const snapshotQuestions = (snapshot: any): any[] => (snapshot?.questions ?? []).map((q: any) => q.passageRef === undefined ? q : { ...q, passage: snapshot.passages?.[q.passageRef] ?? "" });
-export class ApiError extends Error { constructor(public statusCode: number, message: string,public code?:string) { super(message); } }
-export function assert(condition: unknown, status: number, message: string): asserts condition { if (!condition) throw new ApiError(status, message); }
+export const snapshotQuestions = (snapshot: any): any[] =>
+  (snapshot?.questions ?? []).map((q: any) =>
+    q.passageRef === undefined ? q : { ...q, passage: snapshot.passages?.[q.passageRef] ?? "" },
+  );
+export class ApiError extends Error {
+  constructor(
+    public statusCode: number,
+    message: string,
+    public code?: string,
+  ) {
+    super(message);
+  }
+}
+export function assert(condition: unknown, status: number, message: string): asserts condition {
+  if (!condition) throw new ApiError(status, message);
+}
 // UTC instants for the start and end of a local calendar date in the given timezone.
 export function zonedDay(date: string, timezone: string) {
   const noon = new Date(`${date}T12:00:00Z`);
   const local = (zone: string) => new Date(noon.toLocaleString("en-US", { timeZone: zone })).getTime();
   const offset = local(timezone) - local("UTC");
-  return { start: new Date(Date.parse(`${date}T00:00:00Z`) - offset), end: new Date(Date.parse(`${date}T23:59:59.999Z`) - offset) };
+  return {
+    start: new Date(Date.parse(`${date}T00:00:00Z`) - offset),
+    end: new Date(Date.parse(`${date}T23:59:59.999Z`) - offset),
+  };
 }
-export const today =(timezone: string, now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-export const answerMap = z.record(z.string().max(120), z.string().max(50000)).refine(value => Object.keys(value).length <= 200, "Too many answers");
-export const heartbeatSchema = z.object({ sessionKey: z.string().uuid(), sequence: z.number().int().min(1), answers: answerMap, section: z.number().int().min(0).max(3), question: z.number().int().min(0).max(100), theme: z.enum(["standard","dark","yellow"]), fontSize: z.enum(["standard","large","extra-large"]), resumed:z.boolean().default(false),completeSection:z.boolean().default(false),hidden:z.boolean().default(false), audioPart:z.number().int().min(0).max(20).optional(), audioMs:z.number().int().min(0).max(7200000).optional() }).strict();
+export const today = (timezone: string, now = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+    now,
+  );
+export const answerMap = z
+  .record(z.string().max(120), z.string().max(50000))
+  .refine(value => Object.keys(value).length <= 200, "Too many answers");
+export const heartbeatSchema = z
+  .object({
+    sessionKey: z.string().uuid(),
+    sequence: z.number().int().min(1),
+    answers: answerMap,
+    section: z.number().int().min(0).max(3),
+    question: z.number().int().min(0).max(100),
+    theme: z.enum(["standard", "dark", "yellow"]),
+    fontSize: z.enum(["standard", "large", "extra-large"]),
+    resumed: z.boolean().default(false),
+    completeSection: z.boolean().default(false),
+    hidden: z.boolean().default(false),
+    audioPart: z.number().int().min(0).max(20).optional(),
+    audioMs: z.number().int().min(0).max(7200000).optional(),
+  })
+  .strict();
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
-export const questionSchema = z.object({ id: identifier, skill, course: z.enum(["GENERAL","ACADEMIC","BOTH"]), questionType: z.string().trim().min(1).max(100), section: z.string().trim().min(1).max(100), difficulty: z.enum(["Easy","Medium","Hard"]), title: z.string().trim().min(1).max(200), prompt: z.string().trim().min(1).max(50000), passage: z.string().max(100000).default(""), options: z.array(z.string().max(1000)).max(40), answer: z.union([z.string().max(1000), z.array(z.string().max(1000)).max(20)]), explanation: z.string().max(5000).default(""), assetIds: z.array(z.string().uuid()).max(10).default([]), published: z.boolean(), archived: z.boolean().default(false), practiceEligible: z.boolean().default(false), version: z.number().int().optional() }).strict();
+export const questionSchema = z
+  .object({
+    id: identifier,
+    skill,
+    course: z.enum(["GENERAL", "ACADEMIC", "BOTH"]),
+    questionType: z.string().trim().min(1).max(100),
+    section: z.string().trim().min(1).max(100),
+    difficulty: z.enum(["Easy", "Medium", "Hard"]),
+    title: z.string().trim().min(1).max(200),
+    prompt: z.string().trim().min(1).max(50000),
+    passage: z.string().max(100000).default(""),
+    options: z.array(z.string().max(1000)).max(40),
+    answer: z.union([z.string().max(1000), z.array(z.string().max(1000)).max(20)]),
+    explanation: z.string().max(5000).default(""),
+    assetIds: z.array(z.string().uuid()).max(10).default([]),
+    published: z.boolean(),
+    archived: z.boolean().default(false),
+    practiceEligible: z.boolean().default(false),
+    version: z.number().int().optional(),
+  })
+  .strict();

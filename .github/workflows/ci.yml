@@ -65,7 +65,7 @@ jobs:
           npm --prefix backend run backup:verify-test
         env:
           TEST_BACKUP_DATABASE_URL: postgresql://ci_runner:ci-ephemeral-only@127.0.0.1:5432/portal_ci
-          PG_CLIENT_DOCKER: 'true'
+          PG_CLIENT_DOCKER: "true"
       - name: Container logs
         if: always()
         run: docker logs portal-ci || true

@@ -9,11 +9,7 @@ export const questions: Question[] = [
     course: "BOTH",
     title: "Campus accommodation",
     prompt: "Why did the speaker choose Bramble Hall?",
-    options: [
-      "Private bathrooms in every room",
-      "Walking distance to the science labs",
-      "Lowest accommodation fee",
-    ],
+    options: ["Private bathrooms in every room", "Walking distance to the science labs", "Lowest accommodation fee"],
     answer: "Walking distance to the science labs",
     published: true,
   },
@@ -51,8 +47,7 @@ export const questions: Question[] = [
     difficulty: "Medium",
     course: "GENERAL",
     title: "Student fares",
-    prompt:
-      "Students on courses shorter than three months qualify for a concession.",
+    prompt: "Students on courses shorter than three months qualify for a concession.",
     options: ["True", "False", "Not given"],
     answer: "False",
     published: true,

@@ -1,7 +1,5 @@
 import type { Course, MockTest } from "../types/domain";
-export const mockTests: MockTest[] = (
-  ["GENERAL", "ACADEMIC"] as Course[]
-).flatMap((course) =>
+export const mockTests: MockTest[] = (["GENERAL", "ACADEMIC"] as Course[]).flatMap(course =>
   Array.from({ length: 40 }, (_, i) => ({
     kind: "FLT" as const,
     id: `mock-${String(i + 1).padStart(2, "0")}`,
@@ -14,6 +12,14 @@ export const mockTests: MockTest[] = (
 );
 
 // Illustrative sample only; production Practice Mock count awaits client confirmation.
-mockTests.push(...(["GENERAL", "ACADEMIC"] as Course[]).map(course => ({
-  id: "practice-mock-01", course, kind: "PRACTICE_MOCK" as const, number: 1, published: true, available: true, duration: 150,
-})));
+mockTests.push(
+  ...(["GENERAL", "ACADEMIC"] as Course[]).map(course => ({
+    id: "practice-mock-01",
+    course,
+    kind: "PRACTICE_MOCK" as const,
+    number: 1,
+    published: true,
+    available: true,
+    duration: 150,
+  })),
+);

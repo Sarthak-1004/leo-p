@@ -12,8 +12,7 @@ import type {
   ResultService,
   StudentService,
 } from "./contracts";
-const copy = <T>(value: T): Promise<T> =>
-  Promise.resolve(structuredClone(value));
+const copy = <T>(value: T): Promise<T> => Promise.resolve(structuredClone(value));
 export const studentService: StudentService = { list: () => copy(students) };
 export const mockTestService: MockTestService = { list: () => copy(mockTests) };
 export const questionService: QuestionService = { list: () => copy(questions) };
@@ -23,8 +22,7 @@ export const practiceService: PracticeService = {
   questions: (skill, course) =>
     copy(
       questions.filter(
-        (q) =>
-          skill !== "Speaking" && q.published && q.skill === skill && (q.course === course || q.course === "BOTH"),
+        q => skill !== "Speaking" && q.published && q.skill === skill && (q.course === course || q.course === "BOTH"),
       ),
     ),
 };

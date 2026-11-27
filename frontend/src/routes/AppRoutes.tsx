@@ -1,13 +1,19 @@
 import { PracticeLibrary } from "../pages/student/PracticeLibrary";
 import { AdminRequests, StudentRequests } from "../pages/shared/Requests";
 import { AdminIssues, StudentIssues } from "../pages/shared/Issues";
-import {Media} from "../pages/admin/Media";
-import {Reports} from "../pages/admin/Reports";
-import {Operations} from "../pages/admin/Operations";
+import { Media } from "../pages/admin/Media";
+import { Reports } from "../pages/admin/Reports";
+import { Operations } from "../pages/admin/Operations";
 import { ContentImports } from "../pages/admin/Imports";
 import { Protected } from "../app/Protected";
 import { PortalShell } from "../layouts/PortalShell";
-import { TrainerDashboard, TrainerStudents, TrainerStudentProfile, EvaluationQueue, TrainerProfile } from "../pages/trainer/Trainer";
+import {
+  TrainerDashboard,
+  TrainerStudents,
+  TrainerStudentProfile,
+  EvaluationQueue,
+  TrainerProfile,
+} from "../pages/trainer/Trainer";
 import { Trainers } from "../pages/admin/Trainers";
 import { Evaluation } from "../pages/shared/Evaluation";
 import { Notifications, AuditLog } from "../pages/shared/Notifications";
@@ -38,7 +44,13 @@ export function AppRoutes() {
       <Route path="/student/login" element={<Login />} />
       <Route path="/admin/login" element={<Login admin />} />
       <Route path="/trainer/login" element={<Login trainer />} />
-      <Route element={<Protected role="trainer"><PortalShell trainer /></Protected>}>
+      <Route
+        element={
+          <Protected role="trainer">
+            <PortalShell trainer />
+          </Protected>
+        }
+      >
         <Route path="/trainer/dashboard" element={<TrainerDashboard />} />
         <Route path="/trainer/students" element={<TrainerStudents />} />
         <Route path="/trainer/students/:studentId" element={<TrainerStudentProfile />} />
@@ -53,13 +65,11 @@ export function AppRoutes() {
         <Route path="/student/practice" element={<PracticeHub />} />
         <Route path="/student/practice/question-specific" element={<PracticeLibrary key="type" mode="type" />} />
         <Route path="/student/practice/sectional" element={<PracticeLibrary key="section" mode="section" />} />
-        {skills.map((skill) => (
+        {skills.map(skill => (
           <Route
             key={skill}
             path={`/student/practice/${skill.toLowerCase()}/:practiceId`}
-            element={
-              <Practice key={`${location.pathname}-${course}`} skill={skill} />
-            }
+            element={<Practice key={`${location.pathname}-${course}`} skill={skill} />}
           />
         ))}
         <Route path="/student/mock-tests" element={<MockTests key="flt" />} />
@@ -70,10 +80,7 @@ export function AppRoutes() {
           element={<MockInstructions key={`${location.pathname}-${course}`} />}
         />
         <Route path="/student/results/:attemptId" element={<Results />} />
-        <Route
-          path="/student/results/:attemptId/details"
-          element={<Results detailed />}
-        />
+        <Route path="/student/results/:attemptId/details" element={<Results detailed />} />
         <Route path="/student/history" element={<TestHistory />} />
         <Route path="/student/issues" element={<StudentIssues />} />
         <Route path="/student/requests" element={<StudentRequests />} />
@@ -81,36 +88,30 @@ export function AppRoutes() {
         <Route path="/student/profile" element={<Profile />} />
         <Route path="/student/access-expired" element={<ExpiredAccess />} />
       </Route>
-      <Route element={<Protected role="student"><ExamLayout /></Protected>}>
-        <Route
-          path="/student/attempts/:attemptId"
-          element={<Exam key={location.pathname} />}
-        />
+      <Route
+        element={
+          <Protected role="student">
+            <ExamLayout />
+          </Protected>
+        }
+      >
+        <Route path="/student/attempts/:attemptId" element={<Exam key={location.pathname} />} />
       </Route>
       <Route element={<AdminLayout />}>
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/students" element={<Students />} />
         <Route path="/admin/trainers" element={<Trainers />} />
-        <Route path="/admin/media" element={<Media/>}/>
+        <Route path="/admin/media" element={<Media />} />
         <Route path="/admin/imports" element={<ContentImports />} />
         <Route path="/admin/results/:attemptId" element={<Evaluation key={location.pathname} admin />} />
         <Route path="/admin/notifications" element={<Notifications role="admin" />} />
         <Route path="/admin/audit" element={<AuditLog />} />
-        <Route
-          path="/admin/students/:studentId"
-          element={<StudentDetails key={location.pathname} />}
-        />
+        <Route path="/admin/students/:studentId" element={<StudentDetails key={location.pathname} />} />
         <Route path="/admin/questions" element={<QuestionBank />} />
         <Route path="/admin/questions/new" element={<QuestionEditor />} />
-        <Route
-          path="/admin/questions/:questionId/edit"
-          element={<QuestionEditor />}
-        />
+        <Route path="/admin/questions/:questionId/edit" element={<QuestionEditor />} />
         <Route path="/admin/mock-tests" element={<AdminMocks />} />
-        <Route
-          path="/admin/mock-tests/:courseId/:testId/builder"
-          element={<MockBuilder key={location.pathname} />}
-        />
+        <Route path="/admin/mock-tests/:courseId/:testId/builder" element={<MockBuilder key={location.pathname} />} />
         <Route path="/admin/results" element={<AdminResults />} />
         <Route path="/admin/reports" element={<Reports />} />
         <Route path="/admin/issues" element={<AdminIssues />} />
