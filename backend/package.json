@@ -22,6 +22,7 @@
     "db:seed:production": "node --env-file-if-exists=.env dist/scripts/seed.js",
     "db:local": "tsx scripts/local-postgres.ts",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
+    "test:coverage": "tsx --test --experimental-test-coverage --test-coverage-include=\"src/**/*.ts\" --test-coverage-exclude=\"src/generated/**\" --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=85 --test-concurrency=1 tests/*.test.ts",
     "content:practice": "tsx --env-file-if-exists=.env scripts/install-practice.ts",
     "content:practice:production": "node --env-file-if-exists=.env dist/scripts/install-practice.js",
     "content:mock-speaking": "tsx --env-file-if-exists=.env scripts/install-mock-speaking.ts",
@@ -54,7 +55,8 @@
   "overrides": {
     "exceljs": {
       "uuid": "^11.1.1"
-    }
+    },
+    "effect": "^3.22.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

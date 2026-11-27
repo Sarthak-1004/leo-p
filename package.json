@@ -11,9 +11,14 @@
     "test": "npm --prefix backend test",
     "test:e2e": "npm --prefix frontend run test:e2e",
     "build:vercel": "node scripts/build-vercel.mjs",
-    "test:deployment": "node --test scripts/build-vercel.test.mjs"
+    "test:deployment": "node --test scripts/build-vercel.test.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "engines": {
     "node": "24.x"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0"
   }
 }

@@ -1,13 +1,4 @@
-import type {
-  Course,
-  LeaderboardEntry,
-  MockTest,
-  Progress,
-  Question,
-  Result,
-  Skill,
-  Student,
-} from "../types/domain";
+import type { Course, LeaderboardEntry, MockTest, Progress, Question, Result, Skill, Student } from "../types/domain";
 export interface StudentService {
   list(): Promise<Student[]>;
 }

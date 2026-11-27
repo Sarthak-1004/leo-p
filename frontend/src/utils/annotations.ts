@@ -10,14 +10,26 @@ export const annotationsSupported = () => !!registry() && !!HighlightCtor;
 
 // Stable key for a text block, so a reload finds the same passage.
 export function textKey(prefix: string, text: string) {
-  let h = 5381; for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
   return `${prefix}-${(h >>> 0).toString(36)}`;
 }
 
 export function useAnnotations(attemptId: string) {
   const storageKey = `leo-annotations:${attemptId}`;
-  const [items, setItems] = useState<Annotation[]>(() => { try { return JSON.parse(localStorage.getItem(storageKey) ?? "[]"); } catch { return []; } });
-  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(items)); } catch { /* private mode: keep for this page only */ } }, [items, storageKey]);
+  const [items, setItems] = useState<Annotation[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(items));
+    } catch {
+      /* private mode: keep for this page only */
+    }
+  }, [items, storageKey]);
   return { items, setItems };
 }
-

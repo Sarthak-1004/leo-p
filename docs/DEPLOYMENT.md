@@ -6,6 +6,20 @@ Node 24 is required. Production uses a real PostgreSQL service and a private S3-
 
 Set server environment variables from `backend/.env.example`. Use a secret manager or protected environment, never frontend variables. Required runtime settings are DATABASE_URL and APP_ORIGIN; NODE_ENV=production requires an HTTPS APP_ORIGIN. The browser and `/api` must share an origin. Do not enable VITE_DEMO_MODE for a production build.
 
+Optional settings (added 27 November 2026):
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `TRUST_PROXY` | unset (trust none) | Proxy hops in front of the API, as a count or an address/CIDR list. Live: `2` (Vercel, then Cloud Run). Decides the client IP the per-IP request limit sees. |
+| `WORKER_MODE` | `inline` | `inline`: API and evaluation worker in one process. `off`: API only. `only`: worker with just `/api/health`, `/api/health/ready` and `/api/metrics`. |
+| `WORKER_CONCURRENCY` | `2` | Evaluation jobs one process runs at once (1-16). Each slot claims its own lease with `FOR UPDATE SKIP LOCKED`. |
+| `METRICS_TOKEN` | unset (metrics off) | At least 24 characters. Enables `/api/metrics` and queue detail on `/api/health/ready` for `Authorization: Bearer <token>`. Store it in Secret Manager. |
+| `ACTION_LIMIT_PER_MINUTE` | `300` | Per-user write requests per minute, held in memory per instance. Sign-in limits stay in PostgreSQL. |
+| `LOG_LEVEL` | `info` | Pino log level. |
+| `GOOGLE_CLOUD_PROJECT` | unset | When set, each log line links to its Cloud Trace entry. |
+
+Cookies are marked `Secure` whenever `APP_ORIGIN` is HTTPS. On HTTPS the session cookie is `__Host-kanan_session`; sessions issued under the old `kanan_session` name keep working until they expire, so the change signs nobody out.
+
 ## Capacity settings (1,200 students and 100 staff)
 
 Tested on 3 November 2026 with 1,200 students, 100 staff and a year of history (60,000 results); the measurements are in the private QA report kept outside this public repository. These settings control capacity:
@@ -60,7 +74,16 @@ The Dockerfile builds the UI/API and runs as an unprivileged user. Pass DATABASE
 
 ## Process and jobs
 
-Start the compiled backend with `npm --prefix backend start`. It fails if PostgreSQL is unavailable. `/api/health` checks the database. The Writing job worker runs with the API process, claims PostgreSQL leases and preserves outputs/retries. Multiple workers use SKIP LOCKED; a stale lease is recoverable.
+Start the compiled backend with `npm --prefix backend start`. It fails if PostgreSQL is unavailable. `/api/health` checks the database. The Writing and Speaking evaluation worker runs `WORKER_CONCURRENCY` jobs at once, claims PostgreSQL leases and preserves outputs and retries. Slots and instances use SKIP LOCKED, so no job runs twice; a lease left by a crashed process expires after 3 minutes and the job is retried. On shutdown the worker stops claiming and waits up to 8 seconds for running jobs. Job timestamps are compared in UTC, so the database time zone does not matter.
+
+Separate worker service (recommended once Practice Mock volume grows; one two-task script takes about 35 s):
+
+```powershell
+gcloud run deploy leo-prep-worker --image $img --region asia-south1 --no-allow-unauthenticated --min-instances 1 --max-instances 2 --no-cpu-throttling --cpu 1 --memory 1Gi --set-env-vars WORKER_MODE=only,WORKER_CONCURRENCY=6 <same secrets and AI settings as leo-prep-api>
+gcloud run services update leo-prep-api --region asia-south1 --update-env-vars WORKER_MODE=off
+```
+
+`--no-cpu-throttling` is required for any instance that runs the worker (including `inline` mode): with request-based CPU, Cloud Run throttles the background job loop between requests. Six slots on one worker instance mark about 10 Practice Mock scripts a minute; check the Vertex AI quota before raising it.
 
 Configure process restarts, memory/CPU limits, request/body timeouts and logging retention. Logs redact cookies/authorization and do not include passwords, essay bodies or service keys. Inspect failed evaluation jobs, import errors and interruption flags through operational workflows. Alerts and infrastructure-level dashboards require the selected host's configuration.
 
@@ -71,6 +94,26 @@ Schedule encrypted PostgreSQL backups and object-storage versioning/backup accor
 Keep migrations and a tested rollback/recovery plan with every release. Append-only audit/score triggers intentionally reject modification; do not disable them to perform routine application actions. Session/throttle/import records require an approved retention/cleanup schedule before go-live.
 
 ## Monitoring and the exam path
+
+Built into the server:
+
+- Every response carries `X-Request-Id` (a valid incoming ID is kept), and log lines include it.
+- Logs use Google Cloud severities (`severity`, `message`). Unhandled errors are logged in the Error Reporting format with the stack trace; the error message itself is withheld so request data or database values never reach the logs. Cloud Error Reporting groups them automatically.
+- `/api/health`: liveness, checks the database. `/api/health/ready`: readiness, returns 503 if the database is unreachable. Queue figures never fail readiness, so a slow AI provider cannot take an instance out of service.
+- `/api/metrics` (Prometheus text, needs `METRICS_TOKEN`): requests by route pattern and status class, latency histogram, requests in flight, worker jobs by outcome, running jobs, queue depth, failed jobs in 24 hours, age of the oldest pending job, memory and uptime.
+
+Alerts to create in Cloud Monitoring (an operator task in the Google Cloud console, not done by the code):
+
+| Alert | Condition |
+|---|---|
+| Server errors | Cloud Run 5xx responses above 1% of requests for 5 minutes |
+| Slow exam saves | Cloud Run request latency p95 above 3 s for 10 minutes |
+| Database CPU | Cloud SQL CPU above 80% for 10 minutes |
+| Database connections | Cloud SQL connections above 80% of the limit |
+| Evaluation backlog | `portal_queue_oldest_pending_seconds` above 900 (collect with Managed Service for Prometheus or an uptime check on `/api/health/ready` with the token) |
+| Failed evaluations | `portal_queue_failed_jobs_24h` above 5 (Admins also get an in-portal notification per failed script) |
+| New error type | Error Reporting notification for new error groups |
+| Uptime | Uptime check on `/api/health` every minute from two regions |
 
 - `.github/workflows/uptime.yml` calls `/api/health` (which also queries the database) every 15 minutes and fails if the portal does not answer; GitHub emails the repository owner about failed runs. Set the repository variable `PORTAL_URL` if the address changes. This is a basic check, not full monitoring: add the hosting provider's alerts for memory, restarts and errors before a real sitting.
 - Tested on 16 Nov 2026 with 500 simulated students on one FLT (local machine, real PostgreSQL and audio): no server errors, no lost answers, API memory peak 564 MB. A 512 MB instance is therefore too small for a sitting of that size.

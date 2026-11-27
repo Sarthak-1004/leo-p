@@ -1,0 +1,14 @@
+node_modules/
+dist/
+backend/src/generated/
+backend/content/
+backend/prisma/migrations/
+stitch-imports/
+tmp/
+.vercel/
+frontend/test-results/
+frontend/playwright-report/
+*.md
+*.woff2
+*.sql
+package-lock.json

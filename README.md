@@ -74,11 +74,15 @@ Live API mode is the default. For the original fixture review only, set VITE_DEM
 ## Checks
 
 ```powershell
+npm ci
+npm run format:check
 npm --prefix backend run typecheck
 npm --prefix frontend run typecheck
 npm --prefix frontend run lint
+npm --prefix frontend run test:unit
 npm run build
 npm test
+npm --prefix backend run test:coverage
 npm run test:e2e
 npm --prefix frontend run test:live
 ```
