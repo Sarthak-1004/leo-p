@@ -1,5 +1,6 @@
 import { usePreview } from "../app/PreviewContext";
-import { Link, Outlet } from "react-router";
+import { Link } from "react-router";
+import { PageOutlet } from "../routes/PageOutlet";
 import { Badge } from "../components/ui";
 import { Icon } from "../components/Icon";
 export function ExamLayout() {
@@ -23,7 +24,7 @@ export function ExamLayout() {
         </div>
       )}
       <main id="exam-content">
-        <Outlet />
+        <PageOutlet />
       </main>
     </div>
   );

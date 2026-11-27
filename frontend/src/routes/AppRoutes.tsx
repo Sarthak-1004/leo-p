@@ -1,41 +1,52 @@
-import { PracticeLibrary } from "../pages/student/PracticeLibrary";
-import { AdminRequests, StudentRequests } from "../pages/shared/Requests";
-import { AdminIssues, StudentIssues } from "../pages/shared/Issues";
-import { Media } from "../pages/admin/Media";
-import { Reports } from "../pages/admin/Reports";
-import { Operations } from "../pages/admin/Operations";
-import { ContentImports } from "../pages/admin/Imports";
+import { lazyPage } from "./lazyPage";
 import { Protected } from "../app/Protected";
 import { PortalShell } from "../layouts/PortalShell";
-import {
-  TrainerDashboard,
-  TrainerStudents,
-  TrainerStudentProfile,
-  EvaluationQueue,
-  TrainerProfile,
-} from "../pages/trainer/Trainer";
-import { Trainers } from "../pages/admin/Trainers";
-import { Evaluation } from "../pages/shared/Evaluation";
-import { Notifications, AuditLog } from "../pages/shared/Notifications";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { StudentLayout } from "../layouts/StudentLayout";
 import { AdminLayout } from "../layouts/AdminLayout";
 import { ExamLayout } from "../layouts/ExamLayout";
-import { Dashboard, PracticeHub } from "../pages/student/Dashboard";
-import { Practice } from "../pages/student/Practice";
-import { MockInstructions, MockTests } from "../pages/student/MockTests";
-import { Results, TestHistory } from "../pages/student/Results";
-import { ExpiredAccess, Leaderboard, Profile } from "../pages/student/Profile";
-import { Exam } from "../pages/student/Exam";
 import { Login, NotFound, StatePreview } from "../pages/utility/Utility";
-import { AdminDashboard, AdminResults } from "../pages/admin/Dashboard";
-import { StudentDetails, Students } from "../pages/admin/Students";
-import { QuestionBank, QuestionEditor } from "../pages/admin/Questions";
-import { AdminMocks } from "../pages/admin/Mocks";
-import { MockBuilder } from "../pages/admin/MockBuilder";
-import { Settings } from "../pages/admin/Settings";
 import { usePreview } from "../app/PreviewContext";
 import { skills } from "../mocks/practice";
+// Pages load on demand; sign-in, layouts and route guards stay in the first bundle.
+const PracticeLibrary = lazyPage(() => import("../pages/student/PracticeLibrary"), "PracticeLibrary");
+const AdminRequests = lazyPage(() => import("../pages/shared/Requests"), "AdminRequests");
+const StudentRequests = lazyPage(() => import("../pages/shared/Requests"), "StudentRequests");
+const AdminIssues = lazyPage(() => import("../pages/shared/Issues"), "AdminIssues");
+const StudentIssues = lazyPage(() => import("../pages/shared/Issues"), "StudentIssues");
+const Media = lazyPage(() => import("../pages/admin/Media"), "Media");
+const Reports = lazyPage(() => import("../pages/admin/Reports"), "Reports");
+const Operations = lazyPage(() => import("../pages/admin/Operations"), "Operations");
+const ContentImports = lazyPage(() => import("../pages/admin/Imports"), "ContentImports");
+const TrainerDashboard = lazyPage(() => import("../pages/trainer/Trainer"), "TrainerDashboard");
+const TrainerStudents = lazyPage(() => import("../pages/trainer/Trainer"), "TrainerStudents");
+const TrainerStudentProfile = lazyPage(() => import("../pages/trainer/Trainer"), "TrainerStudentProfile");
+const EvaluationQueue = lazyPage(() => import("../pages/trainer/Trainer"), "EvaluationQueue");
+const TrainerProfile = lazyPage(() => import("../pages/trainer/Trainer"), "TrainerProfile");
+const Trainers = lazyPage(() => import("../pages/admin/Trainers"), "Trainers");
+const Evaluation = lazyPage(() => import("../pages/shared/Evaluation"), "Evaluation");
+const Notifications = lazyPage(() => import("../pages/shared/Notifications"), "Notifications");
+const AuditLog = lazyPage(() => import("../pages/shared/Notifications"), "AuditLog");
+const Dashboard = lazyPage(() => import("../pages/student/Dashboard"), "Dashboard");
+const PracticeHub = lazyPage(() => import("../pages/student/Dashboard"), "PracticeHub");
+const Practice = lazyPage(() => import("../pages/student/Practice"), "Practice");
+const MockInstructions = lazyPage(() => import("../pages/student/MockTests"), "MockInstructions");
+const MockTests = lazyPage(() => import("../pages/student/MockTests"), "MockTests");
+const Results = lazyPage(() => import("../pages/student/Results"), "Results");
+const TestHistory = lazyPage(() => import("../pages/student/Results"), "TestHistory");
+const ExpiredAccess = lazyPage(() => import("../pages/student/Profile"), "ExpiredAccess");
+const Leaderboard = lazyPage(() => import("../pages/student/Profile"), "Leaderboard");
+const Profile = lazyPage(() => import("../pages/student/Profile"), "Profile");
+const Exam = lazyPage(() => import("../pages/student/Exam"), "Exam");
+const AdminDashboard = lazyPage(() => import("../pages/admin/Dashboard"), "AdminDashboard");
+const AdminResults = lazyPage(() => import("../pages/admin/Dashboard"), "AdminResults");
+const StudentDetails = lazyPage(() => import("../pages/admin/Students"), "StudentDetails");
+const Students = lazyPage(() => import("../pages/admin/Students"), "Students");
+const QuestionBank = lazyPage(() => import("../pages/admin/Questions"), "QuestionBank");
+const QuestionEditor = lazyPage(() => import("../pages/admin/Questions"), "QuestionEditor");
+const AdminMocks = lazyPage(() => import("../pages/admin/Mocks"), "AdminMocks");
+const MockBuilder = lazyPage(() => import("../pages/admin/MockBuilder"), "MockBuilder");
+const Settings = lazyPage(() => import("../pages/admin/Settings"), "Settings");
 export function AppRoutes() {
   const { course } = usePreview();
   const location = useLocation();

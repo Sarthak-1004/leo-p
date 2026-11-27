@@ -1,6 +1,7 @@
 import { activeStudent } from "../utils/policy";
 import { useEffect, useRef, useState } from "react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
+import { PageOutlet } from "../routes/PageOutlet";
 import { Sidebar } from "../components/Navigation";
 import { Icon } from "../components/Icon";
 import { Badge, ErrorState, LoadingState, Notice } from "../components/ui";
@@ -205,7 +206,7 @@ export function PortalShell({ admin = false, trainer = false }: { admin?: boolea
               <Notice>This trainer account is disabled.</Notice>
             </div>
           ) : (
-            <Outlet />
+            <PageOutlet />
           )}
         </main>
         {mode === "live" && hasMore && (
