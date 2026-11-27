@@ -161,7 +161,8 @@ export async function startPractice(
         title: `${selection.skill} practice`,
         skill: selection.skill,
         ...packSnapshotQuestions(questions),
-        builder: { duration: { [selection.skill]: minutes } },
+        // Keyed from the fixed section list rather than the request value.
+        builder: { duration: Object.fromEntries(SECTIONS.filter(s => s === selection.skill).map(s => [s, minutes])) },
         conversions: {},
         version: 1,
         untimed,
@@ -276,21 +277,23 @@ export async function signal(db: Db, user: Identity, id: string, body: Heartbeat
       if (skill !== sectionName && (remainingBySection[skill] ?? 0) > 0)
         assert(value === (previous[key] ?? ""), 400, "Answers can only change in the open section");
     }
-    const accepted = { ...body.answers };
+    // Merged in a Map so client-chosen keys never become properties of a live object.
+    const accepted = new Map(Object.entries(body.answers));
     // A sparse request must never erase previously saved inactive-skill answers.
-    for (const [key, value] of Object.entries(previous)) if (key.split(":")[0] !== sectionName) accepted[key] = value;
+    for (const [key, value] of Object.entries(previous))
+      if (key.split(":")[0] !== sectionName) accepted.set(key, value);
     if (hasSections)
-      for (const key of Object.keys(accepted)) {
+      for (const key of [...accepted.keys()]) {
         const skill = key.split(":")[0]!;
         if ((remainingBySection[skill] ?? 0) === 0) {
-          const old = (a.answers as Record<string, string>)[key];
-          if (old === undefined) delete accepted[key];
-          else accepted[key] = old;
+          const old = previous[key];
+          if (old === undefined) accepted.delete(key);
+          else accepted.set(key, old);
         }
       }
     if (hasSections)
-      for (const [key, value] of Object.entries(a.answers as Record<string, string>))
-        if ((remainingBySection[key.split(":")[0]!] ?? 0) === 0) accepted[key] = value;
+      for (const [key, value] of Object.entries(previous))
+        if ((remainingBySection[key.split(":")[0]!] ?? 0) === 0) accepted.set(key, value);
     if (body.completeSection) {
       remainingBySection[sectionName] = 0;
       await tx.attemptLog.create({
@@ -306,7 +309,7 @@ export async function signal(db: Db, user: Identity, id: string, body: Heartbeat
     const complete = finished || (!untimed && finalRemaining === 0);
     // The server decides the open section; a client cannot skip ahead or go back.
     const section = a.kind === "PRACTICE" || !hasSections ? a.section : Math.max(0, openSection(remainingBySection));
-    const savedAnswers = json(!untimed && a.remainingMs === 0 ? a.answers : accepted);
+    const savedAnswers = json(!untimed && a.remainingMs === 0 ? a.answers : Object.fromEntries(accepted));
     // Listening plays once: the stored audio position only ever moves forward, so a reload cannot replay it.
     const audio =
       body.audioPart !== undefined &&

@@ -213,6 +213,11 @@ export async function studentInsights(db: Db, user: Identity, timezone: string) 
 
 export async function saveGoals(db: Db, user: Identity, input: z.infer<typeof goalsSchema>) {
   studentOnly(user);
-  await db.student.update({ where: { id: user.id }, data: { examDate: input.examDate, targetBand: input.targetBand } });
-  return input;
+  // Respond with the stored values, not the request body.
+  const saved = await db.student.update({
+    where: { id: user.id },
+    data: { examDate: input.examDate, targetBand: input.targetBand },
+    select: { examDate: true, targetBand: true },
+  });
+  return { examDate: saved.examDate, targetBand: saved.targetBand };
 }

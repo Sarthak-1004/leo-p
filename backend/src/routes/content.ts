@@ -123,14 +123,15 @@ export function registerContentRoutes(app: FastifyInstance, { db, user }: RouteC
     const u = user(req);
     admin(u);
     const value = settingsSchema.parse(req.body);
-    await transaction(db, async tx => {
-      await tx.platformSetting.upsert({
+    // Respond with the stored settings, not the request body.
+    return transaction(db, async tx => {
+      const saved = await tx.platformSetting.upsert({
         where: { id: "platform" },
         create: { id: "platform", value },
         update: { value, version: { increment: 1 } },
       });
       await audit(tx, u.id, "Settings updated", "platform");
+      return saved.value;
     });
-    return value;
   });
 }
