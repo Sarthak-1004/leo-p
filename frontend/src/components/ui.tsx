@@ -270,13 +270,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
 }
 
 export function FilterPanel({ children, title = "Filters and sorting" }: { children: ReactNode; title?: string }) {
-  const [open, setOpen] = useState(() => window.matchMedia("(min-width: 768px)").matches);
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)");
-    const resize = () => setOpen(media.matches);
-    media.addEventListener("change", resize);
-    return () => media.removeEventListener("change", resize);
-  }, []);
+  // Starts closed on every screen size and opens on click.
+  const [open, setOpen] = useState(false);
   return (
     <details className="filter-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>
