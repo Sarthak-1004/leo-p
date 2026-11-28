@@ -191,7 +191,8 @@ function NavSection({
 }) {
   const { pathname } = useLocation();
   const containsActive = leaves(group.items).some(item => pathname.startsWith(item.to));
-  const [open, setOpen] = useState(true);
+  // Groups start closed and open on click; a closed group still marks the active page.
+  const [open, setOpen] = useState(false);
   // The sidebar renders in both the desktop rail and the mobile drawer, so IDs must be unique per instance.
   const id = useId();
   const count = group.count && counts[group.count];
